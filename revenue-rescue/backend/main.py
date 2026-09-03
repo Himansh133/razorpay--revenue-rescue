@@ -82,7 +82,27 @@ app.include_router(webhooks.router)
 
 @app.get("/health", response_model=HealthResponse, tags=["Health"])
 def health_check():
-    return HealthResponse(status="ok", version="1.0.0")
+    from backend.config import GEMINI_API_KEY, ANTHROPIC_API_KEY
+    gemini_key = GEMINI_API_KEY or os.getenv("GEMINI_API_KEY", "")
+    anthropic_key = ANTHROPIC_API_KEY or os.getenv("ANTHROPIC_API_KEY", "")
+    
+    if gemini_key:
+        provider = "gemini"
+        model_name = "gemini-3.7-flash"
+    elif anthropic_key:
+        provider = "anthropic"
+        model_name = "claude-3-5-sonnet-20241022"
+    else:
+        provider = "fallback"
+        model_name = "deterministic-engine"
+
+    return HealthResponse(
+        status="ok",
+        version="1.0.0",
+        gemini_configured=bool(gemini_key),
+        active_provider=provider,
+        model=model_name
+    )
 
 @app.get("/invoices/{invoice_id}/audit-trail", tags=["AUDIT-TRAIL"])
 def get_invoice_audit_trail(invoice_id: str):
@@ -108,7 +128,11 @@ def ask_agent(payload: AgentAskRequest):
             status="success",
             final_response=agent_res["final_response"],
             tool_calls_made=agent_res["tool_calls_made"],
-            turns_used=agent_res["turns_used"]
+            turns_used=agent_res["turns_used"],
+            provider=agent_res.get("provider"),
+            model=agent_res.get("model"),
+            is_fallback=agent_res.get("is_fallback", False),
+            fallback_reason=agent_res.get("fallback_reason")
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"AGENT-BRAIN error: {str(e)}")

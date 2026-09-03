@@ -314,9 +314,15 @@ def execute_agent_tool(tool_name: str, tool_input: dict, invoices_df: pd.DataFra
         return {"error": f"Unknown tool '{tool_name}'"}
 
 
-def run_deterministic_fallback(user_message: str, invoices_df: pd.DataFrame, customers_df: pd.DataFrame) -> Dict[str, Any]:
+def run_deterministic_fallback(
+    user_message: str,
+    invoices_df: pd.DataFrame,
+    customers_df: pd.DataFrame,
+    fallback_reason: str = "NO_API_KEY",
+    error_details: str = ""
+) -> Dict[str, Any]:
     """
-    Safe fallback mode when no ANTHROPIC_API_KEY is available or LLM fails.
+    Safe fallback mode when no LLM API KEY is available or LLM fails.
     """
     tool_calls_made = []
 
@@ -360,6 +366,15 @@ def run_deterministic_fallback(user_message: str, invoices_df: pd.DataFrame, cus
     msg_lower = user_message.lower()
     requests_payment_link = any(kw in msg_lower for kw in ["create", "generate", "send", "payment link", "pay link", "execute"])
 
+    if fallback_reason == "NO_API_KEY":
+        tag = "[Deterministic Fallback Mode (No LLM Key)]"
+    elif fallback_reason == "GEMINI_API_ERROR":
+        tag = f"[Deterministic Fallback Mode (Gemini API Error: {error_details or '503/Quota'})]"
+    elif fallback_reason == "ANTHROPIC_API_ERROR":
+        tag = f"[Deterministic Fallback Mode (Anthropic API Error: {error_details or 'Unavailable'})]"
+    else:
+        tag = "[Deterministic Fallback Mode]"
+
     if best and requests_payment_link:
         plink = execute_agent_tool("create_payment_link", {"invoice_id": target_inv, "offer_amount": best["offer_amount"]}, invoices_df, customers_df)
         tool_calls_made.append({
@@ -369,7 +384,7 @@ def run_deterministic_fallback(user_message: str, invoices_df: pd.DataFrame, cus
         })
 
         narration = (
-            f"[Deterministic Fallback Mode (No LLM Key)]\n"
+            f"{tag}\n"
             f"Analyzed invoice {target_inv} for customer {prof['customer_id']} (Original Amount: ₹{prof['invoice_amount']:,.2f}, Recovery Score: {prof['recovery_score']:.4f}).\n"
             f"Evaluated {opt_res['candidates_evaluated']} candidate offers against merchant floor ₹{opt_res['merchant_floor']:,.2f}.\n"
             f"Selected optimal offer: ₹{best['offer_amount']:,.2f} ({best['discount_pct']}% discount, {best['days_to_payment']}-day terms) "
@@ -378,7 +393,7 @@ def run_deterministic_fallback(user_message: str, invoices_df: pd.DataFrame, cus
         )
     elif best:
         narration = (
-            f"[Deterministic Fallback Mode (No LLM Key)]\n"
+            f"{tag}\n"
             f"Analyzed invoice {target_inv} for customer {prof['customer_id']} (Original Amount: ₹{prof['invoice_amount']:,.2f}, Recovery Score: {prof['recovery_score']:.4f}).\n"
             f"Evaluated {opt_res['candidates_evaluated']} candidate offers against merchant floor ₹{opt_res['merchant_floor']:,.2f}.\n"
             f"Recommended optimal offer: ₹{best['offer_amount']:,.2f} ({best['discount_pct']}% discount, {best['days_to_payment']}-day terms) "
@@ -386,14 +401,15 @@ def run_deterministic_fallback(user_message: str, invoices_df: pd.DataFrame, cus
             f"(Payment link was not generated as execution was not requested)."
         )
     else:
-        narration = f"[Deterministic Fallback Mode] Analyzed invoice {target_inv}. No valid offer satisfied the merchant floor constraint."
+        narration = f"{tag} Analyzed invoice {target_inv}. No valid offer satisfied the merchant floor constraint."
 
     return {
         "status": "success",
         "final_response": narration,
         "tool_calls_made": tool_calls_made,
         "turns_used": len(tool_calls_made),
-        "is_fallback": True
+        "is_fallback": True,
+        "fallback_reason": fallback_reason
     }
 
 
@@ -495,11 +511,13 @@ def run_negotiator_agent(user_message: str, invoices_df: pd.DataFrame, customers
                         "is_fallback": False
                     }
 
-            return run_deterministic_fallback(user_message, invoices_df, customers_df)
+            return run_deterministic_fallback(user_message, invoices_df, customers_df, fallback_reason="GEMINI_API_ERROR")
 
         except Exception as err:
             print(f"[AGENT-BRAIN] Gemini LLM execution error: {err}. Falling back to deterministic mode.")
-            return run_deterministic_fallback(user_message, invoices_df, customers_df)
+            err_msg = str(err)
+            short_err = "503/High Demand" if "503" in err_msg or "UNAVAILABLE" in err_msg else ("Quota/Rate Limit" if "429" in err_msg or "RESOURCE_EXHAUSTED" in err_msg else "API Error")
+            return run_deterministic_fallback(user_message, invoices_df, customers_df, fallback_reason="GEMINI_API_ERROR", error_details=short_err)
 
     # 2. Secondary Migration Provider: Anthropic API
     elif anthropic_key:

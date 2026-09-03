@@ -4,6 +4,9 @@ from pydantic import BaseModel, Field
 class HealthResponse(BaseModel):
     status: str
     version: str = "1.0.0"
+    gemini_configured: bool = False
+    active_provider: str = "fallback"
+    model: str = "deterministic-engine"
 
 class OpportunityItem(BaseModel):
     opportunity_id: str
@@ -104,6 +107,10 @@ class AgentAskResponse(BaseModel):
     final_response: str
     tool_calls_made: List[Dict[str, Any]]
     turns_used: int
+    provider: Optional[str] = None
+    model: Optional[str] = None
+    is_fallback: bool = False
+    fallback_reason: Optional[str] = None
 
 class DashboardSummaryResponse(BaseModel):
     total_revenue_at_risk: float

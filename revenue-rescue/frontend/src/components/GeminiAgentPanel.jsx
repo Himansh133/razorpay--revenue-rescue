@@ -7,7 +7,6 @@ import {
   Sparkles,
   Wrench,
   CheckCircle2,
-  AlertCircle,
   ExternalLink,
   ChevronRight,
   RefreshCw
@@ -25,16 +24,27 @@ export default function GeminiAgentPanel({ invoiceId, customerName, onRefresh })
   ]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
-  const [agentOnline, setAgentOnline] = useState(true);
+  const [healthData, setHealthData] = useState({
+    status: 'checking',
+    gemini_configured: false,
+    active_provider: 'unknown',
+    model: 'gemini-3.7-flash'
+  });
+  const [lastResponseFallback, setLastResponseFallback] = useState(false);
+  const [fallbackReason, setFallbackReason] = useState(null);
   const messagesEndRef = useRef(null);
 
   useEffect(() => {
     async function checkHealth() {
       try {
         const res = await getHealth();
-        setAgentOnline(res?.status === 'ok');
+        if (res && res.status === 'ok') {
+          setHealthData(res);
+        } else {
+          setHealthData({ status: 'offline', gemini_configured: false, active_provider: 'offline', model: 'offline' });
+        }
       } catch (err) {
-        setAgentOnline(false);
+        setHealthData({ status: 'offline', gemini_configured: false, active_provider: 'offline', model: 'offline' });
       }
     }
     checkHealth();
@@ -61,12 +71,16 @@ export default function GeminiAgentPanel({ invoiceId, customerName, onRefresh })
 
     try {
       const res = await askAgent(queryText);
+      setLastResponseFallback(Boolean(res.is_fallback));
+      setFallbackReason(res.fallback_reason || null);
+
       const agentMsg = {
         id: Date.now() + '-agent',
         sender: 'agent',
         text: res.final_response || 'Evaluation completed.',
         toolCalls: res.tool_calls_made || [],
         turnsUsed: res.turns_used || 0,
+        isFallback: res.is_fallback,
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
       };
       setMessages(prev => [...prev, agentMsg]);
@@ -76,6 +90,7 @@ export default function GeminiAgentPanel({ invoiceId, customerName, onRefresh })
         onRefresh();
       }
     } catch (err) {
+      setLastResponseFallback(true);
       setMessages(prev => [
         ...prev,
         {
@@ -105,6 +120,9 @@ export default function GeminiAgentPanel({ invoiceId, customerName, onRefresh })
     `Create the payment link for this offer.`
   ];
 
+  const isLiveGemini = healthData.status === 'ok' && healthData.gemini_configured && !lastResponseFallback;
+  const isFallback = lastResponseFallback || (healthData.status === 'ok' && !healthData.gemini_configured);
+
   return (
     <div className={`p-6 md:p-8 ${TOKENS.radius.container} bg-[#E0E5EC] ${TOKENS.shadows.extruded} space-y-6 border border-[#C5CEDC]/50`}>
       {/* Panel Header */}
@@ -119,7 +137,7 @@ export default function GeminiAgentPanel({ invoiceId, customerName, onRefresh })
                 REVENUE RESCUE AGENT
               </h2>
               <span className={`px-2.5 py-0.5 ${TOKENS.radius.pill} ${TOKENS.shadows.insetSmall} text-[10px] font-bold font-mono text-[#6C63FF] bg-[#E0E5EC] flex items-center gap-1`}>
-                <Sparkles size={12} /> gemini-3.7-flash
+                <Sparkles size={12} /> {healthData.model || 'gemini-3.7-flash'}
               </span>
             </div>
             <p className="text-xs font-semibold text-[#6B7280]">
@@ -129,10 +147,22 @@ export default function GeminiAgentPanel({ invoiceId, customerName, onRefresh })
         </div>
 
         <div className="flex items-center gap-2">
-          <div className={`px-3 py-1.5 ${TOKENS.radius.pill} ${TOKENS.shadows.insetSmall} bg-[#E0E5EC] text-xs font-bold font-display flex items-center gap-2 ${agentOnline ? 'text-[#38B2AC]' : 'text-red-500'}`}>
-            <span className={`w-2 h-2 rounded-full ${agentOnline ? 'bg-[#38B2AC] animate-pulse' : 'bg-red-500'}`}></span>
-            {agentOnline ? '● GEMINI AGENT ONLINE' : '● AGENT OFFLINE'}
-          </div>
+          {isLiveGemini ? (
+            <div className={`px-3 py-1.5 ${TOKENS.radius.pill} ${TOKENS.shadows.insetSmall} bg-[#E0E5EC] text-xs font-bold font-display text-[#38B2AC] flex items-center gap-2`}>
+              <span className="w-2 h-2 rounded-full bg-[#38B2AC] animate-pulse"></span>
+              🟢 GEMINI AGENT ONLINE
+            </div>
+          ) : isFallback ? (
+            <div className={`px-3 py-1.5 ${TOKENS.radius.pill} ${TOKENS.shadows.insetSmall} bg-[#E0E5EC] text-xs font-bold font-display text-amber-600 flex items-center gap-2`}>
+              <span className="w-2 h-2 rounded-full bg-amber-500"></span>
+              🟡 DETERMINISTIC FALLBACK ({fallbackReason === 'NO_API_KEY' ? 'No LLM Key' : 'LLM Unavailable'})
+            </div>
+          ) : (
+            <div className={`px-3 py-1.5 ${TOKENS.radius.pill} ${TOKENS.shadows.insetSmall} bg-[#E0E5EC] text-xs font-bold font-display text-red-500 flex items-center gap-2`}>
+              <span className="w-2 h-2 rounded-full bg-red-500"></span>
+              🔴 AGENT OFFLINE
+            </div>
+          )}
         </div>
       </div>
 

@@ -9,6 +9,7 @@ import {
 import { TOKENS } from '../tokens';
 import OfferTable from '../components/OfferTable';
 import Timeline from '../components/Timeline';
+import GeminiAgentPanel from '../components/GeminiAgentPanel';
 import {
   ArrowLeft,
   CheckCircle2,
@@ -137,6 +138,27 @@ export default function RecoveryCase({ invoiceId, onBack }) {
     );
   }
 
+  if (!loading && !detail) {
+    return (
+      <div className="space-y-6">
+        <button
+          onClick={onBack}
+          className={`px-5 py-2.5 ${TOKENS.radius.button} bg-[#E0E5EC] ${TOKENS.shadows.extrudedSmall} hover:${TOKENS.shadows.extrudedHover} text-[#3D4852] font-semibold text-sm font-display flex items-center gap-2 transition-neumorphic ${TOKENS.focus}`}
+        >
+          <ArrowLeft size={18} /> Back to Opportunities
+        </button>
+        <div className={`p-10 ${TOKENS.radius.container} ${TOKENS.shadows.inset} text-center space-y-4`}>
+          <div className="text-lg font-bold text-red-500 font-display">
+            Unable to load recovery case details for invoice {invoiceId || 'N/A'}
+          </div>
+          <p className="text-xs text-[#6B7280]">
+            Please verify that the backend service is online and the invoice exists.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   const isRecovered = detail?.status === 'recovered';
   const bestOffer = recommendation?.best_offer;
   const allCandidates = recommendation?.all_candidates || [];
@@ -154,7 +176,7 @@ export default function RecoveryCase({ invoiceId, onBack }) {
         <div className="flex items-center gap-3">
           {isRecovered ? (
             <div className={`px-4 py-2 ${TOKENS.radius.pill} ${TOKENS.shadows.insetSmall} bg-[#E0E5EC] text-[#38B2AC] font-bold text-xs font-display flex items-center gap-2`}>
-              <CheckCircle2 size={16} /> ₹{detail?.actual_recovered?.toLocaleString('en-IN') || bestOffer?.offer_amount?.toLocaleString('en-IN')} RECOVERED
+              <CheckCircle2 size={16} /> ₹{detail?.actual_recovered?.toLocaleString('en-IN') || bestOffer?.offer_amount?.toLocaleString('en-IN') || '0'} RECOVERED
             </div>
           ) : (
             <div className={`px-4 py-2 ${TOKENS.radius.pill} ${TOKENS.shadows.insetSmall} bg-[#E0E5EC] text-[#6C63FF] font-bold text-xs font-display flex items-center gap-2 animate-pulse`}>
@@ -169,25 +191,25 @@ export default function RecoveryCase({ invoiceId, onBack }) {
           <div>
             <div className="flex items-center gap-3">
               <h1 className="text-3xl font-extrabold font-display text-[#3D4852] tracking-tight">
-                {detail?.customer_profile?.customer_id || detail?.customer_id}
+                {detail?.customer_profile?.customer_id || detail?.customer_id || 'Customer'}
               </h1>
               <span className={`px-3 py-1 ${TOKENS.radius.pill} ${TOKENS.shadows.insetSmall} text-xs font-bold font-display text-[#6C63FF]`}>
                 Invoice: {detail?.invoice_id}
               </span>
             </div>
             <p className="text-xs text-[#6B7280] mt-1 font-medium">
-              Risk Tier: <strong className="uppercase text-[#3D4852]">{detail?.recovery_score_breakdown?.tier}</strong>
+              Risk Tier: <strong className="uppercase text-[#3D4852]">{detail?.recovery_score_breakdown?.tier || 'standard'}</strong>
             </p>
           </div>
 
           <div className="grid grid-cols-3 gap-4 text-center">
             <div className={`p-4 ${TOKENS.radius.inner} ${TOKENS.shadows.insetSmall}`}>
               <div className="text-[10px] uppercase font-bold text-[#6B7280] font-display">Invoice</div>
-              <div className="text-base font-extrabold text-[#3D4852] font-display mt-0.5">{formatRupees(detail?.amount)}</div>
+              <div className="text-base font-extrabold text-[#3D4852] font-display mt-0.5">{formatRupees(detail?.amount || 0)}</div>
             </div>
             <div className={`p-4 ${TOKENS.radius.inner} ${TOKENS.shadows.insetSmall}`}>
               <div className="text-[10px] uppercase font-bold text-[#6B7280] font-display">Overdue</div>
-              <div className="text-base font-extrabold text-red-500 font-display mt-0.5">{detail?.days_overdue} Days</div>
+              <div className="text-base font-extrabold text-red-500 font-display mt-0.5">{detail?.days_overdue || 0} Days</div>
             </div>
             <div className={`p-4 ${TOKENS.radius.inner} ${TOKENS.shadows.insetSmall}`}>
               <div className="text-[10px] uppercase font-bold text-[#6B7280] font-display">Customer LTV</div>
@@ -208,10 +230,10 @@ export default function RecoveryCase({ invoiceId, onBack }) {
             </div>
             <input
               type="range"
-              min={Math.round(detail?.amount * 0.5)}
-              max={detail?.amount}
+              min={detail?.amount ? Math.round(detail.amount * 0.5) : 0}
+              max={detail?.amount || 100000}
               step={1000}
-              value={merchantFloor}
+              value={merchantFloor || 0}
               onChange={handleFloorChange}
               onMouseUp={handleFloorCommit}
               onTouchEnd={handleFloorCommit}
@@ -279,6 +301,13 @@ export default function RecoveryCase({ invoiceId, onBack }) {
             </div>
           )}
         </div>
+
+        {/* Gemini Revenue Rescue Agent Panel */}
+        <GeminiAgentPanel
+          invoiceId={detail?.invoice_id}
+          customerName={detail?.customer_profile?.customer_id}
+          onRefresh={() => fetchAuditTrail(invoiceId)}
+        />
 
         <div className="space-y-4">
           <div className="flex items-center justify-between">
