@@ -1,0 +1,24 @@
+@import "tailwindcss";
+
+@layer base {
+  body {
+    background-color: #4c8be2;
+    color: #3D4852;
+    font-family: 'DM Sans', sans-serif;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6,
+  .font-display {
+    font-family: 'Plus Jakarta Sans', sans-serif;
+  }
+}
+
+/* Custom smooth transition utilities for Neumorphism */
+.transition-neumorphic {
+  transition: transform 300ms ease-out, box-shadow 300ms ease-out, background-color 300ms ease-out;
+}
