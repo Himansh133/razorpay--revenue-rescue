@@ -2,14 +2,91 @@ import os
 import json
 import pandas as pd
 from typing import Dict, Any, List, Optional
-from backend.config import ANTHROPIC_API_KEY
+from backend.config import GEMINI_API_KEY, ANTHROPIC_API_KEY
 from backend.services.scoring import rank_invoices, classify_tier
 from backend.services.optimizer import optimize as optimize_offer
 from backend.ml.train import predict_acceptance
 from backend.services.razorpay import create_payment_link
 from backend.db.database import log_event
 
+try:
+    from google import genai
+    from google.genai import types
+    HAS_GEMINI_SDK = True
+except ImportError:
+    HAS_GEMINI_SDK = False
+
 MAX_TOOL_ITERATIONS = 8
+
+# Tool declarations for Google Gemini GenAI SDK
+if HAS_GEMINI_SDK:
+    GEMINI_TOOLS = [types.Tool(function_declarations=[
+        types.FunctionDeclaration(
+            name="rank_invoices",
+            description="Rank overdue invoices by recoverability score. Use this when the user asks which invoices or customers should be prioritized.",
+            parameters=types.Schema(
+                type=types.Type.OBJECT,
+                properties={
+                    "min_tier": types.Schema(
+                        type=types.Type.STRING,
+                        description="Optional tier filter: high_priority, standard, low_priority, do_not_contact"
+                    )
+                }
+            )
+        ),
+        types.FunctionDeclaration(
+            name="get_customer_profile",
+            description="Retrieve customer invoice details, payment history metrics, LTV, and recoverability score breakdown. Use before analyzing specific invoice options.",
+            parameters=types.Schema(
+                type=types.Type.OBJECT,
+                properties={
+                    "invoice_id": types.Schema(
+                        type=types.Type.STRING,
+                        description="The invoice ID to retrieve details for (e.g. INV001184)"
+                    )
+                },
+                required=["invoice_id"]
+            )
+        ),
+        types.FunctionDeclaration(
+            name="optimize_offer",
+            description="Evaluate candidate recovery offers using the machine-learned acceptance model, expected-value calculation, and merchant floor. NEVER manually calculate or invent financial amounts or probabilities.",
+            parameters=types.Schema(
+                type=types.Type.OBJECT,
+                properties={
+                    "invoice_id": types.Schema(
+                        type=types.Type.STRING,
+                        description="The invoice ID to optimize recovery offers for"
+                    ),
+                    "merchant_floor": types.Schema(
+                        type=types.Type.NUMBER,
+                        description="Optional absolute minimum acceptable recovery amount in ₹. If omitted, uses standard default floor calculation."
+                    )
+                },
+                required=["invoice_id"]
+            )
+        ),
+        types.FunctionDeclaration(
+            name="create_payment_link",
+            description="Create a real Razorpay Test Mode payment link for a recommended recovery offer. Use ONLY when the user explicitly requests to create, generate, send, or execute a payment link. NEVER call this tool when the user is only asking for recommendations or analysis.",
+            parameters=types.Schema(
+                type=types.Type.OBJECT,
+                properties={
+                    "invoice_id": types.Schema(
+                        type=types.Type.STRING,
+                        description="The invoice ID to create payment link for"
+                    ),
+                    "offer_amount": types.Schema(
+                        type=types.Type.NUMBER,
+                        description="The offer amount in ₹ (must be >= merchant floor and match optimizer result)"
+                    )
+                },
+                required=["invoice_id", "offer_amount"]
+            )
+        )
+    ])]
+else:
+    GEMINI_TOOLS = []
 
 # Tool declarations for Anthropic Tool Calling API
 AGENT_TOOLS = [
@@ -322,92 +399,191 @@ def run_deterministic_fallback(user_message: str, invoices_df: pd.DataFrame, cus
 
 def run_negotiator_agent(user_message: str, invoices_df: pd.DataFrame, customers_df: pd.DataFrame) -> Dict[str, Any]:
     """
-    Real LLM Tool-Calling Negotiator Agent using Anthropic SDK with fallback.
+    Real LLM Tool-Calling Negotiator Agent using Google Gemini API (gemini-3.7-flash) with fallback.
     """
-    api_key = ANTHROPIC_API_KEY or os.getenv("ANTHROPIC_API_KEY", "")
+    gemini_key = GEMINI_API_KEY or os.getenv("GEMINI_API_KEY", "")
+    anthropic_key = ANTHROPIC_API_KEY or os.getenv("ANTHROPIC_API_KEY", "")
 
-    if not api_key:
-        print("[AGENT-BRAIN] ANTHROPIC_API_KEY missing. Using safe deterministic fallback mode.")
+    if not gemini_key and not anthropic_key:
+        print("[AGENT-BRAIN] No LLM API KEY found. Using safe deterministic fallback mode.")
         return run_deterministic_fallback(user_message, invoices_df, customers_df)
 
-    try:
-        import anthropic
-        client = anthropic.Anthropic(api_key=api_key)
+    # 1. Primary LLM Provider: Google Gemini API (gemini-3.7-flash)
+    if gemini_key and HAS_GEMINI_SDK:
+        try:
+            client = genai.Client(api_key=gemini_key)
 
-        system_prompt = (
-            "You are the Revenue Rescue Negotiator Agent, an AI financial recovery assistant.\n"
-            "Your objective is to help merchants investigate overdue invoices, analyze recoverability, and optimize recovery offers.\n"
-            "STRICT ACTION GATING RULE:\n"
-            "- NEVER call 'create_payment_link' UNLESS the user explicitly asks to create, generate, send, or execute a payment link.\n"
-            "- If the user only asks for analysis, recommendations, or best offers, evaluate customer profile and optimal offer without creating a payment link.\n"
-            "STRICT FINANCIAL SAFETY RULES:\n"
-            "1. NEVER calculate or invent invoice amounts, discount amounts, merchant floors, acceptance probabilities, or expected values yourself.\n"
-            "2. ALWAYS call backend tools ('rank_invoices', 'get_customer_profile', 'optimize_offer', 'create_payment_link') to obtain deterministic mathematical calculations.\n"
-            "3. Explain the returned numbers accurately to the user.\n"
-            "4. NEVER create a payment link without first executing optimize_offer to verify the merchant floor and valid offer amount."
-        )
-
-        messages = [{"role": "user", "content": user_message}]
-        tool_calls_made = []
-        turns = 0
-
-        while turns < MAX_TOOL_ITERATIONS:
-            turns += 1
-            response = client.messages.create(
-                model="claude-3-5-sonnet-20241022",
-                max_tokens=1024,
-                system=system_prompt,
-                tools=AGENT_TOOLS,
-                messages=messages
+            system_instruction = (
+                "You are the Revenue Rescue Negotiator Agent, an AI financial recovery assistant.\n"
+                "Your objective is to help merchants investigate overdue invoices, analyze recoverability, and optimize recovery offers.\n"
+                "STRICT ACTION GATING RULE:\n"
+                "- NEVER call 'create_payment_link' UNLESS the user explicitly asks to create, generate, send, or execute a payment link.\n"
+                "- If the user only asks for analysis, recommendations, or best offers, evaluate customer profile and optimal offer without creating a payment link.\n"
+                "STRICT FINANCIAL SAFETY RULES:\n"
+                "1. NEVER calculate or invent invoice amounts, discount amounts, merchant floors, acceptance probabilities, or expected values yourself.\n"
+                "2. ALWAYS call backend tools ('rank_invoices', 'get_customer_profile', 'optimize_offer', 'create_payment_link') to obtain deterministic mathematical calculations.\n"
+                "3. Explain the returned numbers accurately to the user.\n"
+                "4. NEVER create a payment link without first executing optimize_offer to verify the merchant floor and valid offer amount."
             )
 
-            if response.stop_reason == "tool_use":
-                assistant_content = response.content
-                messages.append({"role": "assistant", "content": assistant_content})
+            config = types.GenerateContentConfig(
+                system_instruction=system_instruction,
+                tools=GEMINI_TOOLS,
+                temperature=0.0
+            )
 
-                tool_results_content = []
-                for block in assistant_content:
-                    if block.type == "tool_use":
-                        tool_name = block.name
-                        tool_input = block.input
-                        tool_use_id = block.id
+            contents = [
+                types.Content(
+                    role="user",
+                    parts=[types.Part.from_text(text=user_message)]
+                )
+            ]
+
+            tool_calls_made = []
+            turns = 0
+
+            while turns < MAX_TOOL_ITERATIONS:
+                turns += 1
+                response = client.models.generate_content(
+                    model="gemini-3.7-flash",
+                    contents=contents,
+                    config=config
+                )
+
+                function_calls = response.function_calls
+
+                if function_calls:
+                    if response.candidates and response.candidates[0].content:
+                        contents.append(response.candidates[0].content)
+
+                    func_response_parts = []
+                    for call in function_calls:
+                        tool_name = call.name
+                        tool_args = dict(call.args) if call.args else {}
 
                         # Execute tool deterministically in backend
-                        tool_res = execute_agent_tool(tool_name, tool_input, invoices_df, customers_df)
+                        tool_res = execute_agent_tool(tool_name, tool_args, invoices_df, customers_df)
 
                         tool_calls_made.append({
                             "tool_name": tool_name,
-                            "input": tool_input,
+                            "input": tool_args,
                             "result": tool_res
                         })
 
-                        tool_results_content.append({
-                            "type": "tool_result",
-                            "tool_use_id": tool_use_id,
-                            "content": json.dumps(tool_res)
-                        })
+                        func_response_parts.append(
+                            types.Part.from_function_response(
+                                name=tool_name,
+                                response=tool_res
+                            )
+                        )
 
-                messages.append({"role": "user", "content": tool_results_content})
+                    contents.append(
+                        types.Content(
+                            role="user",
+                            parts=func_response_parts
+                        )
+                    )
+                else:
+                    final_text = response.text or ""
+                    return {
+                        "status": "success",
+                        "provider": "gemini",
+                        "model": "gemini-3.7-flash",
+                        "final_response": final_text,
+                        "tool_calls_made": tool_calls_made,
+                        "turns_used": turns,
+                        "is_fallback": False
+                    }
 
-            elif response.stop_reason in ["end_turn", "max_tokens"]:
-                final_text = ""
-                for block in response.content:
-                    if getattr(block, "type", None) == "text":
-                        final_text += block.text
+            return run_deterministic_fallback(user_message, invoices_df, customers_df)
 
-                return {
-                    "status": "success",
-                    "final_response": final_text,
-                    "tool_calls_made": tool_calls_made,
-                    "turns_used": turns,
-                    "is_fallback": False
-                }
-            else:
-                break
+        except Exception as err:
+            print(f"[AGENT-BRAIN] Gemini LLM execution error: {err}. Falling back to deterministic mode.")
+            return run_deterministic_fallback(user_message, invoices_df, customers_df)
 
-        # Fallback if max iterations exceeded
-        return run_deterministic_fallback(user_message, invoices_df, customers_df)
+    # 2. Secondary Migration Provider: Anthropic API
+    elif anthropic_key:
+        try:
+            import anthropic
+            client = anthropic.Anthropic(api_key=anthropic_key)
 
-    except Exception as err:
-        print(f"[AGENT-BRAIN] LLM execution error: {err}. Falling back to deterministic mode.")
+            system_prompt = (
+                "You are the Revenue Rescue Negotiator Agent, an AI financial recovery assistant.\n"
+                "Your objective is to help merchants investigate overdue invoices, analyze recoverability, and optimize recovery offers.\n"
+                "STRICT ACTION GATING RULE:\n"
+                "- NEVER call 'create_payment_link' UNLESS the user explicitly asks to create, generate, send, or execute a payment link.\n"
+                "- If the user only asks for analysis, recommendations, or best offers, evaluate customer profile and optimal offer without creating a payment link.\n"
+                "STRICT FINANCIAL SAFETY RULES:\n"
+                "1. NEVER calculate or invent invoice amounts, discount amounts, merchant floors, acceptance probabilities, or expected values yourself.\n"
+                "2. ALWAYS call backend tools ('rank_invoices', 'get_customer_profile', 'optimize_offer', 'create_payment_link') to obtain deterministic mathematical calculations.\n"
+                "3. Explain the returned numbers accurately to the user.\n"
+                "4. NEVER create a payment link without first executing optimize_offer to verify the merchant floor and valid offer amount."
+            )
+
+            messages = [{"role": "user", "content": user_message}]
+            tool_calls_made = []
+            turns = 0
+
+            while turns < MAX_TOOL_ITERATIONS:
+                turns += 1
+                response = client.messages.create(
+                    model="claude-3-5-sonnet-20241022",
+                    max_tokens=1024,
+                    system=system_prompt,
+                    tools=AGENT_TOOLS,
+                    messages=messages
+                )
+
+                if response.stop_reason == "tool_use":
+                    assistant_content = response.content
+                    messages.append({"role": "assistant", "content": assistant_content})
+
+                    tool_results_content = []
+                    for block in assistant_content:
+                        if block.type == "tool_use":
+                            tool_name = block.name
+                            tool_input = block.input
+                            tool_use_id = block.id
+
+                            tool_res = execute_agent_tool(tool_name, tool_input, invoices_df, customers_df)
+
+                            tool_calls_made.append({
+                                "tool_name": tool_name,
+                                "input": tool_input,
+                                "result": tool_res
+                            })
+
+                            tool_results_content.append({
+                                "type": "tool_result",
+                                "tool_use_id": tool_use_id,
+                                "content": json.dumps(tool_res)
+                            })
+
+                    messages.append({"role": "user", "content": tool_results_content})
+
+                elif response.stop_reason in ["end_turn", "max_tokens"]:
+                    final_text = ""
+                    for block in response.content:
+                        if getattr(block, "type", None) == "text":
+                            final_text += block.text
+
+                    return {
+                        "status": "success",
+                        "provider": "anthropic",
+                        "model": "claude-3-5-sonnet-20241022",
+                        "final_response": final_text,
+                        "tool_calls_made": tool_calls_made,
+                        "turns_used": turns,
+                        "is_fallback": False
+                    }
+                else:
+                    break
+
+            return run_deterministic_fallback(user_message, invoices_df, customers_df)
+
+        except Exception as err:
+            print(f"[AGENT-BRAIN] Anthropic LLM execution error: {err}. Falling back to deterministic mode.")
+            return run_deterministic_fallback(user_message, invoices_df, customers_df)
+
+    else:
         return run_deterministic_fallback(user_message, invoices_df, customers_df)

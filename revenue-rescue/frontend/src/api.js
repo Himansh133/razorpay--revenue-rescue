@@ -62,3 +62,10 @@ export async function triggerMockWebhook(invoiceId, amount) {
     body: JSON.stringify({ invoice_id: invoiceId, amount: amount }),
   });
 }
+
+export async function askAgent(message) {
+  return fetchJSON(`${BASE_URL}/agent/ask`, {
+    method: 'POST',
+    body: JSON.stringify({ message: message }),
+  });
+}

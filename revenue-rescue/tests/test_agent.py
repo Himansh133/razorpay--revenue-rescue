@@ -55,6 +55,7 @@ def test_5_max_iteration_limit():
 
 def test_6_missing_api_key_fallback(sample_data, monkeypatch):
     inv_df, cust_df = sample_data
+    monkeypatch.setenv("GEMINI_API_KEY", "")
     monkeypatch.setenv("ANTHROPIC_API_KEY", "")
     res = run_negotiator_agent("What is the best offer for INV001184?", inv_df, cust_df)
     assert res["status"] == "success"

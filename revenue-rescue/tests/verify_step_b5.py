@@ -1,17 +1,17 @@
 import os
 import pandas as pd
-from backend.config import ANTHROPIC_API_KEY
+from backend.config import GEMINI_API_KEY, ANTHROPIC_API_KEY
 from backend.agents.negotiator import run_negotiator_agent, execute_agent_tool
 
 def run_b5_verification():
     inv_df = pd.read_csv("revenue-rescue/data/invoices.csv")
     cust_df = pd.read_csv("revenue-rescue/data/customers.csv")
 
-    api_key = ANTHROPIC_API_KEY or os.getenv("ANTHROPIC_API_KEY", "")
+    gemini_key = GEMINI_API_KEY or os.getenv("GEMINI_API_KEY", "")
 
     print("==========================================================")
-    print("STEP B.5 — VERIFY & HARDEN REAL LLM AGENT")
-    print(f"ANTHROPIC_API_KEY present: {bool(api_key)}")
+    print("STEP C — VERIFY & HARDEN REAL GEMINI LLM AGENT (gemini-3.7-flash)")
+    print(f"GEMINI_API_KEY present: {bool(gemini_key)}")
     print("==========================================================")
 
     # ----------------------------------------------------
@@ -21,6 +21,8 @@ def run_b5_verification():
     res1 = run_negotiator_agent("What is the best offer for INV001184?", inv_df, cust_df)
     tools1 = [t["tool_name"] for t in res1["tool_calls_made"]]
     print("Status:", res1["status"])
+    print("Provider:", res1.get("provider"))
+    print("Model:", res1.get("model"))
     print("Is Fallback:", res1["is_fallback"])
     print("Turns Used:", res1["turns_used"])
     print("Tools Called:", tools1)
@@ -35,6 +37,8 @@ def run_b5_verification():
     res2 = run_negotiator_agent("Create the payment link for the recommended offer for INV001184.", inv_df, cust_df)
     tools2 = [t["tool_name"] for t in res2["tool_calls_made"]]
     print("Status:", res2["status"])
+    print("Provider:", res2.get("provider"))
+    print("Model:", res2.get("model"))
     print("Is Fallback:", res2["is_fallback"])
     print("Turns Used:", res2["turns_used"])
     print("Tools Called:", tools2)
@@ -55,6 +59,7 @@ def run_b5_verification():
     res3 = run_negotiator_agent("Find the best recovery opportunity for me.", inv_df, cust_df)
     tools3 = [t["tool_name"] for t in res3["tool_calls_made"]]
     print("Status:", res3["status"])
+    print("Provider:", res3.get("provider"))
     print("Is Fallback:", res3["is_fallback"])
     print("Turns Used:", res3["turns_used"])
     print("Tools Called:", tools3)
@@ -75,6 +80,7 @@ def run_b5_verification():
     # TEST 5: Deterministic Fallback Mode (No API Key)
     # ----------------------------------------------------
     print("\n--- TEST 5: Deterministic Fallback Mode (Simulated No API Key) ---")
+    os.environ["GEMINI_API_KEY"] = ""
     os.environ["ANTHROPIC_API_KEY"] = ""
     res_fb = run_negotiator_agent("What is the best offer for INV001184?", inv_df, cust_df)
     tools_fb = [t["tool_name"] for t in res_fb["tool_calls_made"]]
@@ -85,8 +91,8 @@ def run_b5_verification():
     assert "create_payment_link" not in tools_fb
     print("✓ Test 5 Passed: Fallback mode executed cleanly with is_fallback=True.")
 
-    if api_key:
-        os.environ["ANTHROPIC_API_KEY"] = api_key
+    if gemini_key:
+        os.environ["GEMINI_API_KEY"] = gemini_key
 
     print("\n==========================================================")
     print("ALL STEP B.5 VERIFICATION TESTS PASSED SUCCESSFULLY! 🚀")
