@@ -28,7 +28,7 @@ def create_payment_link(
     amount_in_paise = int(round(offer_amount * 100))
 
     url = "https://api.razorpay.com/v1/payment_links"
-    ref_id = f"{invoice_id}_{int(time.time())}"
+    ref_id = f"{invoice_id}_{int(time.time() * 1000)}"
     payload = {
         "amount": amount_in_paise,
         "currency": "INR",
