@@ -162,12 +162,17 @@ export default function GeminiAgentPanel({ invoiceId, customerName, onRefresh })
           ) : isFallback ? (
             <div className={`px-3 py-1.5 ${TOKENS.radius.pill} ${TOKENS.shadows.insetSmall} bg-neu-base text-xs font-bold font-display text-amber-500 flex items-center gap-2`}>
               <span className="w-2 h-2 rounded-full bg-amber-500"></span>
-              DETERMINISTIC FALLBACK ({fallbackReason === 'NO_API_KEY' ? 'No Gemini Key' : (fallbackReason || 'LLM Unavailable')})
+              DETERMINISTIC FALLBACK ({
+                fallbackReason === 'NO_API_KEY' ? 'No Gemini Key' :
+                fallbackReason === 'MISSING_GEMINI_SDK' ? 'Gemini SDK Missing' :
+                fallbackReason === 'GEMINI_API_ERROR' ? 'Gemini API Error' :
+                (fallbackReason || 'LLM Unavailable')
+              })
             </div>
           ) : (
             <div className={`px-3 py-1.5 ${TOKENS.radius.pill} ${TOKENS.shadows.insetSmall} bg-neu-base text-xs font-bold font-display text-red-500 flex items-center gap-2`}>
               <span className="w-2 h-2 rounded-full bg-red-500"></span>
-              AGENT OFFLINE
+              {healthData.status === 'offline' ? 'HEALTH CHECK FAILED' : 'AGENT OFFLINE'}
             </div>
           )}
         </div>

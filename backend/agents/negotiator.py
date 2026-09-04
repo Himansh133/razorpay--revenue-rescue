@@ -432,7 +432,10 @@ def run_negotiator_agent(user_message: str, invoices_df: pd.DataFrame, customers
         return run_deterministic_fallback(user_message, invoices_df, customers_df)
 
     # 1. Primary LLM Provider: Google Gemini API (gemini-3.7-flash)
-    if gemini_key and HAS_GEMINI_SDK:
+    if gemini_key:
+        if not HAS_GEMINI_SDK:
+            print("[AGENT-BRAIN] Gemini API key configured but google-genai SDK not installed. Using fallback.")
+            return run_deterministic_fallback(user_message, invoices_df, customers_df, fallback_reason="MISSING_GEMINI_SDK")
         try:
             client = genai.Client(api_key=gemini_key)
 
