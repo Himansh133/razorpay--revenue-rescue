@@ -1,4 +1,6 @@
 import pandas as pd
+from unittest.mock import patch, MagicMock
+from fastapi import HTTPException
 from backend.services.optimizer import generate_candidate_offers, optimize
 from backend.ml.train import predict_acceptance
 from backend.services.razorpay import create_payment_link
@@ -97,12 +99,55 @@ def test_7_razorpay_paise_conversion():
     paise = int(round(offer_amount * 100))
     assert paise == 25583500
 
-    plink_res = create_payment_link("INV001184", offer_amount, "customer@example.com", "Test Customer")
-    assert plink_res["status"] == "created"
-    assert plink_res["amount"] == 255835.0
-    assert int(round(plink_res["amount"] * 100)) == 25583500
-    assert plink_res["short_url"].startswith("http")
-    print("✓ Test 7 Passed: Razorpay paise conversion (₹2,55,835.00 -> 25583500 paise) and API call verified")
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {
+        "id": "plink_test_12345",
+        "amount": 25583500,
+        "amount_paid": 0,
+        "currency": "INR",
+        "status": "created",
+        "short_url": "https://rzp.io/l/test_link_12345",
+        "reference_id": "INV001184"
+    }
+
+    with patch("requests.post", return_value=mock_resp):
+        plink_res = create_payment_link("INV001184", offer_amount, "customer@example.com", "Test Customer")
+        assert plink_res["status"] == "created"
+        assert plink_res["amount"] == 255835.0
+        assert int(round(plink_res["amount"] * 100)) == 25583500
+        assert plink_res["short_url"].startswith("https://")
+        assert "demo" not in plink_res["short_url"]
+    print("✓ Test 7 Passed: Razorpay paise conversion and real link structure verified")
+
+def test_8_no_demo_link_on_razorpay_error():
+    mock_401 = MagicMock()
+    mock_401.status_code = 401
+    mock_401.text = "Unauthorized"
+    mock_401.json.return_value = {"error": {"description": "Authentication failed"}}
+
+    with patch("requests.post", return_value=mock_401):
+        try:
+            create_payment_link("INV001184", 255835.0)
+            assert False, "Should have raised HTTPException on 401"
+        except HTTPException as exc:
+            assert exc.status_code == 401
+            assert "Razorpay API Error" in exc.detail
+            assert "plink_demo" not in str(exc.detail)
+
+    mock_429 = MagicMock()
+    mock_429.status_code = 429
+    mock_429.text = "Rate limited"
+    mock_429.json.return_value = {"error": {"description": "Too many requests"}}
+
+    with patch("requests.post", return_value=mock_429):
+        try:
+            create_payment_link("INV001184", 255835.0)
+            assert False, "Should have raised HTTPException on 429"
+        except HTTPException as exc:
+            assert exc.status_code == 429
+            assert "Razorpay API Error" in exc.detail
+    print("✓ Test 8 Passed: Razorpay 401/429 errors strictly raise HTTPException and NEVER return demo links")
 
 if __name__ == "__main__":
     print("==========================================================")
@@ -115,6 +160,7 @@ if __name__ == "__main__":
     test_5_ev_formula_verification()
     test_6_best_offer_is_highest_ev_valid()
     test_7_razorpay_paise_conversion()
+    test_8_no_demo_link_on_razorpay_error()
     print("==========================================================")
-    print("ALL 7 TESTS PASSED SUCCESSFULLY! 🚀")
+    print("ALL 8 TESTS PASSED SUCCESSFULLY! 🚀")
     print("==========================================================")

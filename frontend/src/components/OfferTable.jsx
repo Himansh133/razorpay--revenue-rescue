@@ -12,15 +12,15 @@ export default function OfferTable({ candidates = [], formatRupees }) {
             key={idx}
             className={`p-4 ${TOKENS.radius.button} transition-all duration-300 flex items-center justify-between text-xs font-mono ${
               isValid
-                ? `bg-[#E0E5EC] ${TOKENS.shadows.extrudedSmall} text-[#3D4852]`
-                : `bg-[#E0E5EC] ${TOKENS.shadows.inset} opacity-50 text-[#6B7280]`
+                ? `bg-neu-surface ${TOKENS.shadows.extrudedSmall} text-neu-primary`
+                : `bg-neu-surface ${TOKENS.shadows.inset} opacity-60 text-neu-secondary`
             }`}
           >
             <div className="flex items-center gap-4">
-              <span className={isValid ? 'font-bold text-[#6C63FF]' : 'line-through'}>
+              <span className={isValid ? 'font-bold text-[#6C63FF]' : 'line-through text-neu-secondary'}>
                 {formatRupees(cand.offer_amount)}
               </span>
-              <span className="text-[11px]">
+              <span className="text-[11px] text-neu-secondary">
                 {cand.discount_pct}% discount | {cand.days_to_payment}d terms
               </span>
             </div>

@@ -67,8 +67,8 @@ export default function Dashboard({ onSelectInvoice, onNavigateOpportunities }) 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           {[1, 2, 3].map((i) => (
             <div key={i} className={`p-8 ${TOKENS.radius.container} ${TOKENS.shadows.inset} h-40 flex flex-col justify-between`}>
-              <div className="h-4 bg-[#C5CEDC] rounded w-1/2"></div>
-              <div className="h-8 bg-[#C5CEDC] rounded w-3/4"></div>
+              <div className="h-4 bg-neu-surface rounded w-1/2"></div>
+              <div className="h-8 bg-neu-surface rounded w-3/4"></div>
             </div>
           ))}
         </div>
@@ -81,45 +81,45 @@ export default function Dashboard({ onSelectInvoice, onNavigateOpportunities }) 
       {/* 3 Metric Cards Side-by-Side */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         {/* Card 1: Revenue at Risk */}
-        <div className={`p-8 ${TOKENS.radius.container} bg-[#E0E5EC] ${TOKENS.shadows.extruded} transition-neumorphic hover:-translate-y-1 hover:${TOKENS.shadows.extrudedHover} flex flex-col justify-between`}>
+        <div className={`p-8 ${TOKENS.radius.container} bg-neu-surface ${TOKENS.shadows.extruded} transition-neumorphic hover:-translate-y-1 hover:${TOKENS.shadows.extrudedHover} flex flex-col justify-between border border-neu`}>
           <div className="flex items-center justify-between mb-4">
-            <span className="text-sm font-semibold tracking-wide text-[#6B7280] uppercase font-display">Revenue at Risk</span>
+            <span className="text-sm font-semibold tracking-wide text-neu-secondary uppercase font-display">Revenue at Risk</span>
             <div className={`p-3 rounded-2xl ${TOKENS.shadows.insetSmall} text-[#6C63FF]`}>
               <AlertTriangle size={22} />
             </div>
           </div>
           <div>
-            <div className="text-3xl lg:text-4xl font-extrabold font-display text-[#3D4852] tracking-tight">
+            <div className="text-3xl lg:text-4xl font-extrabold font-display text-neu-primary tracking-tight">
               {formatRupees(summary?.total_revenue_at_risk)}
             </div>
-            <p className="text-xs text-[#6B7280] mt-2 font-medium">
+            <p className="text-xs text-neu-secondary mt-2 font-medium">
               Overdue Invoices + Stat Leaks ({summary?.overdue_invoices_count || 0} invoices)
             </p>
           </div>
         </div>
 
         {/* Card 2: Recoverable */}
-        <div className={`p-8 ${TOKENS.radius.container} bg-[#E0E5EC] ${TOKENS.shadows.extruded} transition-neumorphic hover:-translate-y-1 hover:${TOKENS.shadows.extrudedHover} flex flex-col justify-between`}>
+        <div className={`p-8 ${TOKENS.radius.container} bg-neu-surface ${TOKENS.shadows.extruded} transition-neumorphic hover:-translate-y-1 hover:${TOKENS.shadows.extrudedHover} flex flex-col justify-between border border-neu`}>
           <div className="flex items-center justify-between mb-4">
-            <span className="text-sm font-semibold tracking-wide text-[#6B7280] uppercase font-display">Recoverable</span>
+            <span className="text-sm font-semibold tracking-wide text-neu-secondary uppercase font-display">Recoverable</span>
             <div className={`p-3 rounded-2xl ${TOKENS.shadows.insetSmall} text-[#6C63FF]`}>
               <TrendingUp size={22} />
             </div>
           </div>
           <div>
-            <div className="text-3xl lg:text-4xl font-extrabold font-display text-[#3D4852] tracking-tight">
+            <div className="text-3xl lg:text-4xl font-extrabold font-display text-neu-primary tracking-tight">
               {formatRupees(summary?.total_recoverable)}
             </div>
-            <p className="text-xs text-[#6B7280] mt-2 font-medium">
+            <p className="text-xs text-neu-secondary mt-2 font-medium">
               High & Standard Priority expected yield
             </p>
           </div>
         </div>
 
-        {/* Card 3: Recovered (Success Metric using Accent Secondary #38B2AC) */}
-        <div className={`p-8 ${TOKENS.radius.container} bg-[#E0E5EC] ${TOKENS.shadows.extruded} transition-neumorphic hover:-translate-y-1 hover:${TOKENS.shadows.extrudedHover} flex flex-col justify-between`}>
+        {/* Card 3: Recovered */}
+        <div className={`p-8 ${TOKENS.radius.container} bg-neu-surface ${TOKENS.shadows.extruded} transition-neumorphic hover:-translate-y-1 hover:${TOKENS.shadows.extrudedHover} flex flex-col justify-between border border-neu`}>
           <div className="flex items-center justify-between mb-4">
-            <span className="text-sm font-semibold tracking-wide text-[#6B7280] uppercase font-display">Recovered</span>
+            <span className="text-sm font-semibold tracking-wide text-neu-secondary uppercase font-display">Recovered</span>
             <div className={`p-3 rounded-2xl ${TOKENS.shadows.insetSmall} text-[#38B2AC]`}>
               <ShieldCheck size={22} />
             </div>
@@ -136,14 +136,14 @@ export default function Dashboard({ onSelectInvoice, onNavigateOpportunities }) 
       </div>
 
       {/* AI Investigation Scan Sequence */}
-      <div className={`p-8 md:p-10 ${TOKENS.radius.container} bg-[#E0E5EC] ${TOKENS.shadows.extruded} space-y-6`}>
+      <div className={`p-8 md:p-10 ${TOKENS.radius.container} bg-neu-surface ${TOKENS.shadows.extruded} space-y-6 border border-neu transition-neumorphic`}>
         <div className="flex items-center gap-3">
           <div className={`p-3 rounded-2xl ${TOKENS.shadows.inset} text-[#6C63FF]`}>
             <Bot size={28} className="animate-pulse" />
           </div>
           <div>
-            <h2 className="text-xl font-bold font-display text-[#3D4852] tracking-tight">🤖 AI INVESTIGATION</h2>
-            <p className="text-xs text-[#6B7280]">Real-time payment ecosystem anomaly & recovery analysis</p>
+            <h2 className="text-xl font-bold font-display text-neu-primary tracking-tight">🤖 AI INVESTIGATION</h2>
+            <p className="text-xs text-neu-secondary">Real-time payment ecosystem anomaly & recovery analysis</p>
           </div>
         </div>
 
@@ -171,7 +171,7 @@ export default function Dashboard({ onSelectInvoice, onNavigateOpportunities }) 
                   ) : (
                     <span className="w-4 h-4 rounded-full border-2 border-[#6B7280] inline-block animate-pulse"></span>
                   )}
-                  <span className={isDone ? 'text-[#3D4852] font-medium' : 'text-[#6B7280]'}>
+                  <span className={isDone ? 'text-neu-primary font-medium' : 'text-neu-secondary'}>
                     {item}
                   </span>
                 </div>
@@ -183,19 +183,19 @@ export default function Dashboard({ onSelectInvoice, onNavigateOpportunities }) 
         {/* Scan Results Reveal */}
         {scanStep >= 5 && (
           <div className="pt-2 animate-fadeIn space-y-4">
-            <div className={`p-6 ${TOKENS.radius.button} ${TOKENS.shadows.extrudedSmall} bg-[#E0E5EC] flex flex-col md:flex-row md:items-center justify-between gap-4`}>
+            <div className={`p-6 ${TOKENS.radius.button} ${TOKENS.shadows.extrudedSmall} bg-neu-surface flex flex-col md:flex-row md:items-center justify-between gap-4 border border-neu`}>
               <div>
-                <h3 className="text-lg font-bold font-display text-[#3D4852]">
+                <h3 className="text-lg font-bold font-display text-neu-primary">
                   {summary?.leaks_detected_count || opps?.total_leaks || 2} revenue opportunities found.
                 </h3>
-                <p className="text-sm text-[#6B7280] mt-1">
-                  Estimated revenue at risk: <strong className="text-[#3D4852]">{formatRupees(summary?.total_revenue_at_risk)}</strong> |
+                <p className="text-sm text-neu-secondary mt-1">
+                  Estimated revenue at risk: <strong className="text-neu-primary">{formatRupees(summary?.total_revenue_at_risk)}</strong> |
                   Potentially recoverable: <strong className="text-[#38B2AC]">{formatRupees(summary?.total_recoverable)}</strong>
                 </p>
               </div>
               <button
                 onClick={onNavigateOpportunities}
-                className={`px-6 py-3 ${TOKENS.radius.button} bg-[#6C63FF] text-white font-semibold font-display ${TOKENS.shadows.extrudedSmall} hover:bg-[#8B84FF] transition-neumorphic hover:-translate-y-0.5 active:translate-y-0.5 active:${TOKENS.shadows.insetSmall} flex items-center justify-center gap-2 ${TOKENS.focus}`}
+                className={`px-6 py-3 ${TOKENS.radius.button} bg-[#6C63FF] text-white font-semibold font-display ${TOKENS.shadows.extrudedSmall} hover:bg-[#8B84FF] transition-neumorphic hover:-translate-y-0.5 active:translate-y-0.5 flex items-center justify-center gap-2 ${TOKENS.focus}`}
               >
                 Review Opportunities <ArrowRight size={18} />
               </button>

@@ -1,8 +1,8 @@
 import os
 import pandas as pd
+from unittest.mock import patch, MagicMock
 from backend.agents.negotiator import AGENT_TOOLS, execute_agent_tool, run_negotiator_agent, MAX_TOOL_ITERATIONS
 from backend.services.razorpay import create_payment_link
-
 from backend.config import DATA_DIR
 
 def get_sample_data():
@@ -87,28 +87,35 @@ def test_8_create_payment_link_floor_guardrail_rejection(sample_data):
 
 def test_9_create_payment_link_valid_amount(sample_data):
     inv_df, cust_df = sample_data
-    res = execute_agent_tool("create_payment_link", {"invoice_id": "INV001184", "offer_amount": 255835.0}, inv_df, cust_df)
-    assert res["status"] == "success"
-    assert res["agreed_amount"] == 255835.0
-    assert res["payment_link_url"].startswith("http")
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {
+        "id": "plink_test_999",
+        "amount": 25583500,
+        "status": "created",
+        "short_url": "https://rzp.io/l/valid_test_link"
+    }
+
+    with patch("requests.post", return_value=mock_resp):
+        res = execute_agent_tool("create_payment_link", {"invoice_id": "INV001184", "offer_amount": 255835.0}, inv_df, cust_df)
+        assert res["status"] == "success"
+        assert res["agreed_amount"] == 255835.0
+        assert res["payment_link_url"].startswith("https://")
     print("✓ Test 9 Passed: Valid offer amount successfully generates payment link")
 
-def test_10_razorpay_integration_preserved():
-    import time
-    time.sleep(1)
-    try:
-        plink_res = create_payment_link("INV001184", 255835.0, "test@example.com", "Test Customer")
-        assert plink_res["status"] == "created"
-        assert plink_res["amount"] == 255835.0
-        paise = int(round(plink_res["amount"] * 100))
-        assert paise == 25583500
-        assert plink_res["short_url"].startswith("http")
-        print("✓ Test 10 Passed: Razorpay Test Mode integration preserved and verified")
-    except Exception as e:
-        if "429" in str(e) or "Too many requests" in str(e):
-            print("✓ Test 10 Passed (Razorpay API Rate Limited as expected after repeated rapid calls)")
-        else:
-            raise e
+def test_10_razorpay_error_handling_no_demo_links(sample_data):
+    inv_df, cust_df = sample_data
+    mock_401 = MagicMock()
+    mock_401.status_code = 401
+    mock_401.text = "Unauthorized"
+    mock_401.json.return_value = {"error": {"description": "Invalid key"}}
+
+    with patch("requests.post", return_value=mock_401):
+        res = execute_agent_tool("create_payment_link", {"invoice_id": "INV001184", "offer_amount": 255835.0}, inv_df, cust_df)
+        assert res["status"] == "error"
+        assert "Razorpay API Error" in res["error"]
+        assert "rzp.io/rzp/demo_" not in str(res)
+    print("✓ Test 10 Passed: Agent create_payment_link tool returns status error on Razorpay API failures (no demo links)")
 
 if __name__ == "__main__":
     print("==========================================================")
@@ -128,7 +135,7 @@ if __name__ == "__main__":
     test_7_optimize_offer_financial_values_deterministic(sd)
     test_8_create_payment_link_floor_guardrail_rejection(sd)
     test_9_create_payment_link_valid_amount(sd)
-    test_10_razorpay_integration_preserved()
+    test_10_razorpay_error_handling_no_demo_links(sd)
     print("==========================================================")
     print("ALL 10 AGENT TESTS PASSED SUCCESSFULLY! 🚀")
     print("==========================================================")

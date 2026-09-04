@@ -303,11 +303,10 @@ def execute_agent_tool(tool_name: str, tool_input: dict, invoices_df: pd.DataFra
             }
         except Exception as err:
             return {
-                "status": "warning",
+                "status": "error",
                 "invoice_id": inv_id,
                 "agreed_amount": requested_amount,
-                "message": f"Payment link creation API warning: {str(err)}",
-                "payment_link_url": f"https://rzp.io/rzp/demo_{inv_id.lower()}"
+                "error": f"Razorpay Payment Link Creation Failed: {str(err)}"
             }
 
     else:
@@ -383,14 +382,22 @@ def run_deterministic_fallback(
             "result": plink
         })
 
-        narration = (
-            f"{tag}\n"
-            f"Analyzed invoice {target_inv} for customer {prof['customer_id']} (Original Amount: ₹{prof['invoice_amount']:,.2f}, Recovery Score: {prof['recovery_score']:.4f}).\n"
-            f"Evaluated {opt_res['candidates_evaluated']} candidate offers against merchant floor ₹{opt_res['merchant_floor']:,.2f}.\n"
-            f"Selected optimal offer: ₹{best['offer_amount']:,.2f} ({best['discount_pct']}% discount, {best['days_to_payment']}-day terms) "
-            f"with predicted acceptance probability {best['acceptance_probability']*100:.2f}% yielding Expected Value ₹{best['expected_value']:,.2f}.\n"
-            f"Created Razorpay Test Payment Link: {plink['payment_link_url']}"
-        )
+        if plink.get("status") == "success":
+            narration = (
+                f"{tag}\n"
+                f"Analyzed invoice {target_inv} for customer {prof['customer_id']} (Original Amount: ₹{prof['invoice_amount']:,.2f}, Recovery Score: {prof['recovery_score']:.4f}).\n"
+                f"Evaluated {opt_res['candidates_evaluated']} candidate offers against merchant floor ₹{opt_res['merchant_floor']:,.2f}.\n"
+                f"Selected optimal offer: ₹{best['offer_amount']:,.2f} ({best['discount_pct']}% discount, {best['days_to_payment']}-day terms) "
+                f"with predicted acceptance probability {best['acceptance_probability']*100:.2f}% yielding Expected Value ₹{best['expected_value']:,.2f}.\n"
+                f"Created Razorpay Test Payment Link: {plink['payment_link_url']}"
+            )
+        else:
+            narration = (
+                f"{tag}\n"
+                f"Analyzed invoice {target_inv} for customer {prof['customer_id']} (Original Amount: ₹{prof['invoice_amount']:,.2f}, Recovery Score: {prof['recovery_score']:.4f}).\n"
+                f"Evaluated {opt_res['candidates_evaluated']} candidate offers against merchant floor ₹{opt_res['merchant_floor']:,.2f}.\n"
+                f"Attempted to create Razorpay Payment Link for offer ₹{best['offer_amount']:,.2f}, but received error: {plink.get('error', 'Payment link creation failed')}"
+            )
     elif best:
         narration = (
             f"{tag}\n"

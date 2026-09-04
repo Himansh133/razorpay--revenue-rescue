@@ -1,10 +1,47 @@
 @import "tailwindcss";
 
+:root {
+  --bg-color: #E0E5EC;
+  --text-primary: #3D4852;
+  --text-secondary: #6B7280;
+  --card-bg: #E0E5EC;
+  --input-bg: #E0E5EC;
+  --border-color: rgba(197, 206, 220, 0.4);
+  --shadow-extruded: 9px 9px 16px rgba(163, 177, 198, 0.6), -9px -9px 16px rgba(255, 255, 255, 0.5);
+  --shadow-extruded-hover: 12px 12px 20px rgba(163, 177, 198, 0.7), -12px -12px 20px rgba(255, 255, 255, 0.6);
+  --shadow-extruded-small: 5px 5px 10px rgba(163, 177, 198, 0.6), -5px -5px 10px rgba(255, 255, 255, 0.5);
+  --shadow-inset: inset 6px 6px 10px rgba(163, 177, 198, 0.6), inset -6px -6px 10px rgba(255, 255, 255, 0.5);
+  --shadow-inset-deep: inset 10px 10px 20px rgba(163, 177, 198, 0.7), inset -10px -10px 20px rgba(255, 255, 255, 0.6);
+  --shadow-inset-small: inset 3px 3px 6px rgba(163, 177, 198, 0.6), inset -3px -3px 6px rgba(255, 255, 255, 0.5);
+  --accent-color: #6C63FF;
+  --accent-hover: #8B84FF;
+  --success-color: #38B2AC;
+}
+
+[data-theme="dark"] {
+  --bg-color: #12161F;
+  --text-primary: #F3F4F6;
+  --text-secondary: #9CA3AF;
+  --card-bg: #181E2A;
+  --input-bg: #151A24;
+  --border-color: rgba(42, 52, 71, 0.6);
+  --shadow-extruded: 8px 8px 16px rgba(0, 0, 0, 0.7), -8px -8px 16px rgba(35, 45, 62, 0.4);
+  --shadow-extruded-hover: 12px 12px 20px rgba(0, 0, 0, 0.8), -12px -12px 20px rgba(35, 45, 62, 0.5);
+  --shadow-extruded-small: 5px 5px 10px rgba(0, 0, 0, 0.7), -5px -5px 10px rgba(35, 45, 62, 0.4);
+  --shadow-inset: inset 6px 6px 10px rgba(0, 0, 0, 0.7), inset -6px -6px 10px rgba(35, 45, 62, 0.4);
+  --shadow-inset-deep: inset 10px 10px 20px rgba(0, 0, 0, 0.8), inset -10px -10px 20px rgba(35, 45, 62, 0.5);
+  --shadow-inset-small: inset 3px 3px 6px rgba(0, 0, 0, 0.7), inset -3px -3px 6px rgba(35, 45, 62, 0.4);
+  --accent-color: #6C63FF;
+  --accent-hover: #8B84FF;
+  --success-color: #38B2AC;
+}
+
 @layer base {
   body {
-    background-color: #4c8be2;
-    color: #3D4852;
+    background-color: var(--bg-color);
+    color: var(--text-primary);
     font-family: 'DM Sans', sans-serif;
+    transition: background-color 300ms ease, color 300ms ease;
   }
 
   h1,
@@ -20,5 +57,43 @@
 
 /* Custom smooth transition utilities for Neumorphism */
 .transition-neumorphic {
-  transition: transform 300ms ease-out, box-shadow 300ms ease-out, background-color 300ms ease-out;
+  transition: transform 300ms ease-out, box-shadow 300ms ease-out, background-color 300ms ease-out, color 300ms ease-out, border-color 300ms ease-out;
+}
+
+.shadow-neu-extruded {
+  box-shadow: var(--shadow-extruded);
+}
+.shadow-neu-extruded-hover:hover {
+  box-shadow: var(--shadow-extruded-hover);
+}
+.shadow-neu-extruded-small {
+  box-shadow: var(--shadow-extruded-small);
+}
+.shadow-neu-inset {
+  box-shadow: var(--shadow-inset);
+}
+.shadow-neu-inset-deep {
+  box-shadow: var(--shadow-inset-deep);
+}
+.shadow-neu-inset-small {
+  box-shadow: var(--shadow-inset-small);
+}
+
+.bg-neu-base {
+  background-color: var(--bg-color);
+}
+.bg-neu-surface {
+  background-color: var(--card-bg);
+}
+.bg-neu-input {
+  background-color: var(--input-bg);
+}
+.text-neu-primary {
+  color: var(--text-primary);
+}
+.text-neu-secondary {
+  color: var(--text-secondary);
+}
+.border-neu {
+  border-color: var(--border-color);
 }
