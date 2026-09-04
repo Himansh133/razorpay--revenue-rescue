@@ -6,7 +6,7 @@ from typing import List, Dict, Any, Generator
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker, Session
 
-from backend.config import DATABASE_URL, DB_PATH
+from backend.config import DATABASE_URL, DB_PATH, normalize_database_url
 from backend.db.models import Base, InvoiceModel, PaymentModel, WebhookEventModel, AuditEventModel
 from backend.models.schemas import AuditEvent
 
@@ -24,12 +24,14 @@ VALID_EVENT_TYPES = {
     "PAYMENT_FAILED"
 }
 
+NORMALIZED_DATABASE_URL = normalize_database_url(DATABASE_URL)
+
 engine_kwargs = {}
-if "sqlite" in DATABASE_URL.lower():
+if "sqlite" in NORMALIZED_DATABASE_URL.lower():
     Path(DB_PATH).parent.mkdir(parents=True, exist_ok=True)
     engine_kwargs["connect_args"] = {"check_same_thread": False}
 
-engine = create_engine(DATABASE_URL, **engine_kwargs)
+engine = create_engine(NORMALIZED_DATABASE_URL, **engine_kwargs)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 def get_db() -> Generator[Session, None, None]:
@@ -40,7 +42,7 @@ def get_db() -> Generator[Session, None, None]:
         db.close()
 
 def init_db():
-    if "sqlite" in DATABASE_URL.lower():
+    if "sqlite" in NORMALIZED_DATABASE_URL.lower():
         Path(DB_PATH).parent.mkdir(parents=True, exist_ok=True)
     Base.metadata.create_all(bind=engine)
 

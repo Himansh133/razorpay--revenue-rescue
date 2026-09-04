@@ -183,5 +183,32 @@ class TestDatabaseAbstraction(unittest.TestCase):
         self.assertIn("Payment captured", summary)
         print("✓ Test H Passed: Audit trail persistence & format verified")
 
+    def test_I_postgres_url_normalization(self):
+        """Test I: PostgreSQL DATABASE_URL normalization to postgresql+psycopg://"""
+        from backend.config import normalize_database_url
+
+        url_pg = normalize_database_url("postgresql://user:password@host/db")
+        self.assertEqual(url_pg, "postgresql+psycopg://user:password@host/db")
+
+        url_p = normalize_database_url("postgres://user:password@host/db")
+        self.assertEqual(url_p, "postgresql+psycopg://user:password@host/db")
+
+        url_already = normalize_database_url("postgresql+psycopg://user:password@host/db")
+        self.assertEqual(url_already, "postgresql+psycopg://user:password@host/db")
+
+        url_sqlite = normalize_database_url("sqlite:///output/audit_trail.db")
+        self.assertEqual(url_sqlite, "sqlite:///output/audit_trail.db")
+        print("✓ Test I Passed: PostgreSQL DATABASE_URL normalization verified")
+
+    def test_J_sqlalchemy_psycopg_v3_dialect_resolution(self):
+        """Test J: SQLAlchemy resolves postgresql+psycopg:// dialect using psycopg v3 driver"""
+        from sqlalchemy.engine.url import make_url
+
+        url = make_url("postgresql+psycopg://user:password@localhost/db")
+        dialect_cls = url.get_dialect()
+        self.assertEqual(dialect_cls.name, "postgresql")
+        self.assertEqual(dialect_cls.driver, "psycopg")
+        print("✓ Test J Passed: SQLAlchemy psycopg v3 driver resolution verified")
+
 if __name__ == "__main__":
     unittest.main()
