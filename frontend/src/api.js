@@ -1,5 +1,19 @@
 // API Fetch Utility Wrappers for API-CORE backend endpoints
-const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000';
+const DEFAULT_PROD_URL = 'https://razorpay-revenue-rescue.onrender.com';
+const DEFAULT_LOCAL_URL = 'http://127.0.0.1:8000';
+
+function getBaseUrl() {
+  const envUrl = import.meta.env.VITE_API_BASE_URL;
+  if (envUrl && envUrl.trim() !== '') {
+    return envUrl.trim().replace(/\/+$/, '');
+  }
+  if (typeof window !== 'undefined' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+    return DEFAULT_PROD_URL;
+  }
+  return DEFAULT_LOCAL_URL;
+}
+
+const BASE_URL = getBaseUrl();
 
 async function fetchJSON(url, options = {}) {
   try {
