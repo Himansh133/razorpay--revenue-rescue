@@ -53,6 +53,31 @@ async def lifespan(app: FastAPI):
     if neg_path.exists():
         state_store["negotiations_df"] = pd.read_csv(neg_path)
 
+    from backend.db.database import init_db, SessionLocal
+    from backend.db.models import InvoiceModel
+    init_db()
+
+    if state_store["invoices_df"] is not None:
+        db = SessionLocal()
+        try:
+            for _, row in state_store["invoices_df"].iterrows():
+                inv_id = str(row["invoice_id"])
+                existing = db.query(InvoiceModel).filter(InvoiceModel.invoice_id == inv_id).first()
+                if not existing:
+                    new_inv = InvoiceModel(
+                        invoice_id=inv_id,
+                        customer_id=str(row["customer_id"]),
+                        amount=float(row["amount"]),
+                        status=str(row.get("status", "overdue")),
+                        recovered_amount=0.0
+                    )
+                    db.add(new_inv)
+            db.commit()
+        except Exception as e:
+            print(f"Error seeding DB invoices: {e}")
+        finally:
+            db.close()
+
     try:
         load_model()
     except Exception as e:
@@ -83,6 +108,9 @@ app.include_router(webhooks.router)
 @app.get("/health", response_model=HealthResponse, tags=["Health"])
 def health_check():
     from backend.config import GEMINI_API_KEY, ANTHROPIC_API_KEY
+    from backend.db.database import SessionLocal
+    from sqlalchemy import text
+
     gemini_key = GEMINI_API_KEY or os.getenv("GEMINI_API_KEY", "")
     anthropic_key = ANTHROPIC_API_KEY or os.getenv("ANTHROPIC_API_KEY", "")
     
@@ -96,12 +124,21 @@ def health_check():
         provider = "fallback"
         model_name = "deterministic-engine"
 
+    db_ok = True
+    try:
+        db = SessionLocal()
+        db.execute(text("SELECT 1"))
+        db.close()
+    except Exception:
+        db_ok = False
+
     return HealthResponse(
         status="ok",
         version="1.0.0",
         gemini_configured=bool(gemini_key),
         active_provider=provider,
-        model=model_name
+        model=model_name,
+        database_connected=db_ok
     )
 
 @app.get("/invoices/{invoice_id}/audit-trail", tags=["AUDIT-TRAIL"])
@@ -157,7 +194,18 @@ def get_dashboard_summary():
         overdue_count = 0
         recoverable = 0.0
 
-    actually_recovered = sum(state_store["recovered_store"].values())
+    from backend.db.database import SessionLocal
+    from backend.db.models import InvoiceModel
+    from sqlalchemy import func
+
+    db = SessionLocal()
+    try:
+        db_recovered = db.query(func.sum(InvoiceModel.recovered_amount)).scalar()
+        actually_recovered = float(db_recovered) if db_recovered is not None else 0.0
+    except Exception:
+        actually_recovered = sum(state_store["recovered_store"].values())
+    finally:
+        db.close()
 
     return DashboardSummaryResponse(
         total_revenue_at_risk=round(overdue_sum + total_leak_impact, 2),

@@ -112,6 +112,7 @@ def verify_webhook_signature(body_bytes: bytes, signature: str) -> bool:
     return hmac.compare_digest(expected_sig, signature)
 
 def parse_webhook_event(payload: Dict[str, Any]) -> Dict[str, Any]:
+    event_id = payload.get("event_id") or payload.get("id")
     event_type = payload.get("event", "")
     plink_entity = payload.get("payload", {}).get("payment_link", {}).get("entity", {})
 
@@ -121,6 +122,7 @@ def parse_webhook_event(payload: Dict[str, Any]) -> Dict[str, Any]:
     amount_paid_rupees = amount_paid_paise / 100.0
 
     return {
+        "event_id": event_id,
         "event_type": event_type,
         "payment_link_id": plink_entity.get("id"),
         "invoice_id": invoice_id,

@@ -8,6 +8,7 @@ load_dotenv(BASE_DIR / ".env", override=True)
 DATA_DIR = os.getenv("DATA_DIR", str(BASE_DIR / "data"))
 OUTPUT_DIR = os.getenv("OUTPUT_DIR", str(BASE_DIR / "output"))
 DB_PATH = os.getenv("DB_PATH", str(Path(OUTPUT_DIR) / "audit_trail.db"))
+DATABASE_URL = os.getenv("DATABASE_URL", f"sqlite:///{DB_PATH}")
 
 RAZORPAY_KEY_ID = os.getenv("RAZORPAY_KEY_ID", "rzp_test_mock_id")
 RAZORPAY_KEY_SECRET = os.getenv("RAZORPAY_KEY_SECRET", "mock_key_secret")

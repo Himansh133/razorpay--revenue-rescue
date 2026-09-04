@@ -114,7 +114,16 @@ def get_invoice_detail(invoice_id: str):
     else:
         breakdown = RecoveryScoreBreakdown(recovery_score=0.0, tier="not_overdue", component_scores={})
 
-    actual_rec = float(data_store.get("recovered_store", {}).get(invoice_id, 0.0))
+    from backend.db.database import SessionLocal
+    from backend.db.models import InvoiceModel
+
+    db = SessionLocal()
+    try:
+        inv_db = db.query(InvoiceModel).filter(InvoiceModel.invoice_id == invoice_id).first()
+        status_val = inv_db.status if inv_db else str(inv_row.get("status", "overdue"))
+        actual_rec = inv_db.recovered_amount if inv_db else float(data_store.get("recovered_store", {}).get(invoice_id, 0.0))
+    finally:
+        db.close()
 
     return InvoiceDetailResponse(
         invoice_id=str(inv_row["invoice_id"]),
@@ -123,7 +132,7 @@ def get_invoice_detail(invoice_id: str):
         issue_date=str(inv_row.get("issue_date", "")),
         due_date=str(inv_row.get("due_date", "")),
         days_overdue=int(inv_row.get("days_overdue", 0)),
-        status=str(inv_row.get("status", "overdue")),
+        status=status_val,
         actual_recovered=actual_rec,
         customer_profile=cust_profile,
         recovery_score_breakdown=breakdown

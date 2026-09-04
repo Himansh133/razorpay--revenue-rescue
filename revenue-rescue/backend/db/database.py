@@ -1,11 +1,14 @@
-import sqlite3
 import json
 import uuid
 import datetime
 from pathlib import Path
-from typing import List, Dict, Any
-from backend.config import DB_PATH
-from backend.db.models import AuditEvent
+from typing import List, Dict, Any, Generator
+from sqlalchemy import create_engine, text
+from sqlalchemy.orm import sessionmaker, Session
+
+from backend.config import DATABASE_URL, DB_PATH
+from backend.db.models import Base, InvoiceModel, PaymentModel, WebhookEventModel, AuditEventModel
+from backend.models.schemas import AuditEvent
 
 VALID_EVENT_TYPES = {
     "LEAK_DETECTED",
@@ -21,29 +24,25 @@ VALID_EVENT_TYPES = {
     "PAYMENT_FAILED"
 }
 
-def get_connection():
+engine_kwargs = {}
+if "sqlite" in DATABASE_URL.lower():
     Path(DB_PATH).parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
+    engine_kwargs["connect_args"] = {"check_same_thread": False}
+
+engine = create_engine(DATABASE_URL, **engine_kwargs)
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+def get_db() -> Generator[Session, None, None]:
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
 
 def init_db():
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS audit_events (
-            event_id TEXT PRIMARY KEY,
-            invoice_id TEXT NOT NULL,
-            timestamp TEXT NOT NULL,
-            event_type TEXT NOT NULL,
-            actor TEXT NOT NULL,
-            detail TEXT NOT NULL,
-            summary TEXT NOT NULL
-        )
-    """)
-    cursor.execute("CREATE INDEX IF NOT EXISTS idx_invoice_id ON audit_events (invoice_id)")
-    conn.commit()
-    conn.close()
+    if "sqlite" in DATABASE_URL.lower():
+        Path(DB_PATH).parent.mkdir(parents=True, exist_ok=True)
+    Base.metadata.create_all(bind=engine)
 
 def build_summary(event_type: str, detail: Dict[str, Any]) -> str:
     if event_type == "LEAK_DETECTED":
@@ -98,76 +97,88 @@ def log_event(invoice_id: str, event_type: str, detail: Dict[str, Any], actor: s
     summary_str = build_summary(event_type, detail)
     event_id = f"evt_{uuid.uuid4().hex[:12]}"
 
-    conn = get_connection()
-    cursor = conn.cursor()
-    
-    # Idempotency check for identical minute log
-    minute_prefix = timestamp_iso[:16]
-    cursor.execute("""
-        SELECT event_id, timestamp FROM audit_events 
-        WHERE invoice_id = ? AND event_type = ? AND timestamp LIKE ?
-    """, (invoice_id, event_type, f"{minute_prefix}%"))
-    existing = cursor.fetchone()
-    if existing:
-        conn.close()
-        return get_event_by_id(existing["event_id"])
+    db: Session = SessionLocal()
+    try:
+        minute_prefix = timestamp_iso[:16]
+        existing = db.query(AuditEventModel).filter(
+            AuditEventModel.invoice_id == invoice_id,
+            AuditEventModel.event_type == event_type,
+            AuditEventModel.timestamp.like(f"{minute_prefix}%")
+        ).first()
 
-    cursor.execute("""
-        INSERT INTO audit_events (event_id, invoice_id, timestamp, event_type, actor, detail, summary)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-    """, (event_id, invoice_id, timestamp_iso, event_type, actor, json.dumps(detail), summary_str))
+        if existing:
+            return AuditEvent(
+                event_id=existing.event_id,
+                invoice_id=existing.invoice_id,
+                timestamp=existing.timestamp,
+                event_type=existing.event_type,
+                actor=existing.actor,
+                detail=json.loads(existing.detail),
+                summary=existing.summary
+            )
 
-    conn.commit()
-    conn.close()
+        db_event = AuditEventModel(
+            event_id=event_id,
+            invoice_id=invoice_id,
+            timestamp=timestamp_iso,
+            event_type=event_type,
+            actor=actor,
+            detail=json.dumps(detail),
+            summary=summary_str
+        )
+        db.add(db_event)
+        db.commit()
+        db.refresh(db_event)
 
-    return AuditEvent(
-        event_id=event_id,
-        invoice_id=invoice_id,
-        timestamp=timestamp_iso,
-        event_type=event_type,
-        actor=actor,
-        detail=detail,
-        summary=summary_str
-    )
+        return AuditEvent(
+            event_id=db_event.event_id,
+            invoice_id=db_event.invoice_id,
+            timestamp=db_event.timestamp,
+            event_type=db_event.event_type,
+            actor=db_event.actor,
+            detail=detail,
+            summary=summary_str
+        )
+    finally:
+        db.close()
 
 def get_event_by_id(event_id: str) -> AuditEvent:
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute("SELECT * FROM audit_events WHERE event_id = ?", (event_id,))
-    row = cursor.fetchone()
-    conn.close()
-    if not row:
-        raise ValueError(f"Event {event_id} not found")
-    return AuditEvent(
-        event_id=row["event_id"],
-        invoice_id=row["invoice_id"],
-        timestamp=row["timestamp"],
-        event_type=row["event_type"],
-        actor=row["actor"],
-        detail=json.loads(row["detail"]),
-        summary=row["summary"]
-    )
+    db: Session = SessionLocal()
+    try:
+        row = db.query(AuditEventModel).filter(AuditEventModel.event_id == event_id).first()
+        if not row:
+            raise ValueError(f"Event {event_id} not found")
+        return AuditEvent(
+            event_id=row.event_id,
+            invoice_id=row.invoice_id,
+            timestamp=row.timestamp,
+            event_type=row.event_type,
+            actor=row.actor,
+            detail=json.loads(row.detail),
+            summary=row.summary
+        )
+    finally:
+        db.close()
 
 def get_trail(invoice_id: str) -> List[AuditEvent]:
     init_db()
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute("SELECT * FROM audit_events WHERE invoice_id = ? ORDER BY timestamp ASC", (invoice_id,))
-    rows = cursor.fetchall()
-    conn.close()
-
-    events = []
-    for r in rows:
-        events.append(AuditEvent(
-            event_id=r["event_id"],
-            invoice_id=r["invoice_id"],
-            timestamp=r["timestamp"],
-            event_type=r["event_type"],
-            actor=r["actor"],
-            detail=json.loads(r["detail"]),
-            summary=r["summary"]
-        ))
-    return events
+    db: Session = SessionLocal()
+    try:
+        rows = db.query(AuditEventModel).filter(AuditEventModel.invoice_id == invoice_id).order_by(AuditEventModel.timestamp.asc()).all()
+        events = []
+        for r in rows:
+            events.append(AuditEvent(
+                event_id=r.event_id,
+                invoice_id=r.invoice_id,
+                timestamp=r.timestamp,
+                event_type=r.event_type,
+                actor=r.actor,
+                detail=json.loads(r.detail),
+                summary=r.summary
+            ))
+        return events
+    finally:
+        db.close()
 
 def get_trail_summary(invoice_id: str) -> str:
     events = get_trail(invoice_id)
