@@ -1,0 +1,30 @@
+# Environment variables and secrets
+.env
+.env.*
+!.env.example
+revenue-rescue-backup/
+
+# Virtual environment
+venv/
+.venv/
+
+# Node dependencies and build outputs
+node_modules/
+**/node_modules/
+dist/
+**/dist/
+
+# Python cache & compiled files
+__pycache__/
+**/__pycache__/
+*.py[cod]
+*$py.class
+
+# SQLite databases & outputs
+*.db
+*.sqlite
+*.sqlite3
+output/*.db
+
+# macOS files
+.DS_Store
