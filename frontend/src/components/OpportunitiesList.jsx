@@ -1,20 +1,23 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { getOpportunities, getInvoices } from '../api';
 import { TOKENS } from '../tokens';
-import { AlertCircle, FileText, ChevronRight, Zap, Target } from 'lucide-react';
+import { AlertCircle, FileText, ChevronRight, Zap, Target, Filter, ArrowUpDown } from 'lucide-react';
 
 export default function OpportunitiesList({ onSelectInvoice }) {
   const [leaks, setLeaks] = useState([]);
   const [invoices, setInvoices] = useState([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('all'); // 'all' | 'leaks' | 'invoices'
+  const [tierFilter, setTierFilter] = useState(''); // Default: '' = All Invoices (no tier parameter)
+  const [sortBy, setSortBy] = useState('score_desc');
 
   useEffect(() => {
     async function loadData() {
+      setLoading(true);
       try {
         const [oppRes, invRes] = await Promise.all([
           getOpportunities(5),
-          getInvoices('high_priority', 1000)
+          getInvoices(tierFilter || null, 1000)
         ]);
         setLeaks(oppRes.opportunities || []);
         setInvoices(invRes.invoices || []);
@@ -25,13 +28,45 @@ export default function OpportunitiesList({ onSelectInvoice }) {
       }
     }
     loadData();
-  }, []);
+  }, [tierFilter]);
+
+  const sortedInvoices = useMemo(() => {
+    const list = [...invoices];
+    switch (sortBy) {
+      case 'score_asc':
+        return list.sort((a, b) => (a.recovery_score || 0) - (b.recovery_score || 0));
+      case 'name_asc':
+        return list.sort((a, b) => (a.customer_id || '').localeCompare(b.customer_id || ''));
+      case 'name_desc':
+        return list.sort((a, b) => (b.customer_id || '').localeCompare(a.customer_id || ''));
+      case 'amount_desc':
+        return list.sort((a, b) => (b.amount || 0) - (a.amount || 0));
+      case 'amount_asc':
+        return list.sort((a, b) => (a.amount || 0) - (b.amount || 0));
+      case 'score_desc':
+      default:
+        return list.sort((a, b) => (b.recovery_score || 0) - (a.recovery_score || 0));
+    }
+  }, [invoices, sortBy]);
 
   const formatRupees = (val) => {
     if (!val && val !== 0) return '₹0';
     if (val >= 10000000) return `₹${(val / 10000000).toFixed(2)}Cr`;
     if (val >= 100000) return `₹${(val / 100000).toFixed(2)}L`;
     return `₹${val.toLocaleString('en-IN')}`;
+  };
+
+  const getHeadingText = () => {
+    switch (tierFilter) {
+      case 'high_priority':
+        return 'High Priority Overdue Invoices';
+      case 'standard':
+        return 'Standard Priority Overdue Invoices';
+      case 'low_priority':
+        return 'Low Priority Overdue Invoices';
+      default:
+        return 'All Recovery Opportunities';
+    }
   };
 
   if (loading) {
@@ -46,7 +81,7 @@ export default function OpportunitiesList({ onSelectInvoice }) {
   }
 
   return (
-    <div className="space-y-10">
+    <div className="space-y-8">
       {/* Header & Filter Tabs */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
@@ -54,11 +89,11 @@ export default function OpportunitiesList({ onSelectInvoice }) {
             Recovery Opportunities
           </h1>
           <p className="text-sm text-neu-secondary mt-1">
-            Statistical revenue leaks & prioritized overdue invoices
+            Statistical revenue leaks & overdue invoices for recovery
           </p>
         </div>
 
-        {/* Tab Selection */}
+        {/* Top Tab Selection */}
         <div className={`p-1.5 ${TOKENS.radius.button} ${TOKENS.shadows.insetSmall} bg-neu-surface flex gap-2 self-start border border-neu`}>
           <button
             onClick={() => setActiveTab('all')}
@@ -68,7 +103,7 @@ export default function OpportunitiesList({ onSelectInvoice }) {
                 : 'text-neu-secondary hover:text-neu-primary'
             } ${TOKENS.focus}`}
           >
-            All ({leaks.length + invoices.length})
+            All ({leaks.length + sortedInvoices.length})
           </button>
           <button
             onClick={() => setActiveTab('leaks')}
@@ -88,8 +123,58 @@ export default function OpportunitiesList({ onSelectInvoice }) {
                 : 'text-neu-secondary hover:text-neu-primary'
             } ${TOKENS.focus}`}
           >
-            Invoices ({invoices.length})
+            Invoices ({sortedInvoices.length})
           </button>
+        </div>
+      </div>
+
+      {/* Filter & Sort Controls Bar */}
+      <div className={`p-4 ${TOKENS.radius.button} ${TOKENS.shadows.extrudedSmall} bg-neu-surface flex flex-wrap items-center justify-between gap-4 border border-neu`}>
+        <div className="flex flex-wrap items-center gap-4">
+          {/* Tier Filter */}
+          <div className="flex items-center gap-2">
+            <Filter size={16} className="text-[#6C63FF]" />
+            <label htmlFor="tier-filter-select" className="text-xs font-bold font-display text-neu-primary">
+              Filter:
+            </label>
+            <select
+              id="tier-filter-select"
+              value={tierFilter}
+              onChange={(e) => setTierFilter(e.target.value)}
+              className={`px-3 py-1.5 text-xs font-medium font-display ${TOKENS.radius.inner} bg-neu-surface text-neu-primary ${TOKENS.shadows.insetSmall} border border-neu focus:outline-none cursor-pointer`}
+            >
+              <option value="">All Invoices</option>
+              <option value="high_priority">High Priority</option>
+              <option value="standard">Standard</option>
+              <option value="low_priority">Low Priority</option>
+            </select>
+          </div>
+
+          {/* Sort By */}
+          <div className="flex items-center gap-2">
+            <ArrowUpDown size={16} className="text-[#6C63FF]" />
+            <label htmlFor="sort-by-select" className="text-xs font-bold font-display text-neu-primary">
+              Sort By:
+            </label>
+            <select
+              id="sort-by-select"
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value)}
+              className={`px-3 py-1.5 text-xs font-medium font-display ${TOKENS.radius.inner} bg-neu-surface text-neu-primary ${TOKENS.shadows.insetSmall} border border-neu focus:outline-none cursor-pointer`}
+            >
+              <option value="score_desc">Recovery Score: High → Low</option>
+              <option value="score_asc">Recovery Score: Low → High</option>
+              <option value="amount_desc">Invoice Amount: High → Low</option>
+              <option value="amount_asc">Invoice Amount: Low → High</option>
+              <option value="name_asc">Customer Name: A → Z</option>
+              <option value="name_desc">Customer Name: Z → A</option>
+            </select>
+          </div>
+        </div>
+
+        {/* Count Indicator */}
+        <div className="text-xs font-bold font-display text-neu-secondary">
+          Showing <span className="text-[#6C63FF] font-extrabold">{sortedInvoices.length}</span> invoices
         </div>
       </div>
 
@@ -107,7 +192,7 @@ export default function OpportunitiesList({ onSelectInvoice }) {
               return (
                 <div
                   key={idx}
-                  onClick={() => onSelectInvoice(invoices[0]?.invoice_id || 'INV001184')}
+                  onClick={() => onSelectInvoice(sortedInvoices[0]?.invoice_id || 'INV001184')}
                   className={`p-6 ${TOKENS.radius.button} bg-neu-surface ${TOKENS.shadows.extrudedSmall} hover:${TOKENS.shadows.extrudedHover} hover:-translate-y-1 transition-neumorphic cursor-pointer flex flex-col md:flex-row md:items-center justify-between gap-4 group border border-neu`}
                 >
                   <div className="flex items-start gap-4">
@@ -160,71 +245,82 @@ export default function OpportunitiesList({ onSelectInvoice }) {
         </div>
       )}
 
-      {/* SECTION 2: Prioritized Overdue Invoices (RECOVERY-SCORE) */}
-      {(activeTab === 'all' || activeTab === 'invoices') && invoices.length > 0 && (
-        <div className="space-y-4 pt-4">
-          <div className="flex items-center gap-2 text-lg font-bold font-display text-neu-primary">
-            <Target size={20} className="text-[#6C63FF]" />
-            <h2>High Priority Overdue Invoices (RECOVERY-SCORE)</h2>
+      {/* SECTION 2: Overdue Invoices (RECOVERY-SCORE) */}
+      {(activeTab === 'all' || activeTab === 'invoices') && (
+        <div className="space-y-4 pt-2">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2 text-lg font-bold font-display text-neu-primary">
+              <Target size={20} className="text-[#6C63FF]" />
+              <h2>{getHeadingText()} (RECOVERY-SCORE)</h2>
+            </div>
+            <span className="text-xs font-bold text-neu-secondary">
+              {sortedInvoices.length} invoices found
+            </span>
           </div>
 
-          <div className="grid grid-cols-1 gap-4">
-            {invoices.map((inv) => {
-              const scorePct = Math.round((inv.recovery_score || 0.5) * 100);
+          {sortedInvoices.length === 0 ? (
+            <div className={`p-8 text-center ${TOKENS.radius.button} ${TOKENS.shadows.inset} bg-neu-surface text-neu-secondary border border-neu`}>
+              No overdue invoices match the selected filter criteria.
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 gap-4">
+              {sortedInvoices.map((inv) => {
+                const scorePct = Math.round((inv.recovery_score || 0.5) * 100);
 
-              return (
-                <div
-                  key={inv.invoice_id}
-                  onClick={() => onSelectInvoice(inv.invoice_id)}
-                  className={`p-6 ${TOKENS.radius.button} bg-neu-surface ${TOKENS.shadows.extrudedSmall} hover:${TOKENS.shadows.extrudedHover} hover:-translate-y-1 transition-neumorphic cursor-pointer flex flex-col md:flex-row md:items-center justify-between gap-4 group border border-neu`}
-                >
-                  <div className="flex items-center gap-4">
-                    <div className={`p-3 rounded-2xl ${TOKENS.shadows.insetSmall} text-[#6C63FF]`}>
-                      <FileText size={22} />
-                    </div>
-                    <div>
-                      <div className="flex items-center gap-3">
-                        <h3 className="text-base font-bold font-display text-neu-primary group-hover:text-[#6C63FF] transition-colors">
-                          {inv.invoice_id}
-                        </h3>
-                        <span className={`px-2.5 py-0.5 text-[10px] font-bold font-display uppercase ${TOKENS.radius.pill} ${TOKENS.shadows.insetSmall} bg-neu-surface text-[#6C63FF]`}>
-                          {inv.tier?.replace('_', ' ')}
-                        </span>
+                return (
+                  <div
+                    key={inv.invoice_id}
+                    onClick={() => onSelectInvoice(inv.invoice_id)}
+                    className={`p-6 ${TOKENS.radius.button} bg-neu-surface ${TOKENS.shadows.extrudedSmall} hover:${TOKENS.shadows.extrudedHover} hover:-translate-y-1 transition-neumorphic cursor-pointer flex flex-col md:flex-row md:items-center justify-between gap-4 group border border-neu`}
+                  >
+                    <div className="flex items-center gap-4">
+                      <div className={`p-3 rounded-2xl ${TOKENS.shadows.insetSmall} text-[#6C63FF]`}>
+                        <FileText size={22} />
                       </div>
-                      <p className="text-xs text-neu-secondary mt-1 font-medium">
-                        Customer: <span className="text-neu-primary">{inv.customer_id}</span> | Overdue: <span className="text-red-500 font-semibold">{inv.days_overdue} days</span>
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-6 self-end md:self-center">
-                    {/* Recovery Score Track / Pill */}
-                    <div className="text-right">
-                      <div className="text-xs font-semibold text-neu-secondary mb-1">Recovery Score</div>
-                      <div className="flex items-center gap-2">
-                        <div className={`w-28 h-3 rounded-full ${TOKENS.shadows.insetSmall} bg-neu-base overflow-hidden p-0.5`}>
-                          <div
-                            className="h-full bg-[#6C63FF] rounded-full transition-all duration-500"
-                            style={{ width: `${scorePct}%` }}
-                          ></div>
+                      <div>
+                        <div className="flex items-center gap-3">
+                          <h3 className="text-base font-bold font-display text-neu-primary group-hover:text-[#6C63FF] transition-colors">
+                            {inv.invoice_id}
+                          </h3>
+                          <span className={`px-2.5 py-0.5 text-[10px] font-bold font-display uppercase ${TOKENS.radius.pill} ${TOKENS.shadows.insetSmall} bg-neu-surface text-[#6C63FF]`}>
+                            {inv.tier?.replace('_', ' ')}
+                          </span>
                         </div>
-                        <span className="text-xs font-bold text-neu-primary font-mono">{scorePct}%</span>
+                        <p className="text-xs text-neu-secondary mt-1 font-medium">
+                          Customer: <span className="text-neu-primary">{inv.customer_id}</span> | Overdue: <span className="text-red-500 font-semibold">{inv.days_overdue} days</span>
+                        </p>
                       </div>
                     </div>
 
-                    <div className="text-right min-w-[120px]">
-                      <div className="text-xs font-semibold text-neu-secondary">Invoice Amount</div>
-                      <div className="text-lg font-extrabold font-display text-neu-primary">
-                        {formatRupees(inv.amount)}
+                    <div className="flex items-center gap-6 self-end md:self-center">
+                      {/* Recovery Score Track / Pill */}
+                      <div className="text-right">
+                        <div className="text-xs font-semibold text-neu-secondary mb-1">Recovery Score</div>
+                        <div className="flex items-center gap-2">
+                          <div className={`w-28 h-3 rounded-full ${TOKENS.shadows.insetSmall} bg-neu-base overflow-hidden p-0.5`}>
+                            <div
+                              className="h-full bg-[#6C63FF] rounded-full transition-all duration-500"
+                              style={{ width: `${scorePct}%` }}
+                            ></div>
+                          </div>
+                          <span className="text-xs font-bold text-neu-primary font-mono">{scorePct}%</span>
+                        </div>
                       </div>
-                    </div>
 
-                    <ChevronRight size={20} className="text-neu-secondary group-hover:text-[#6C63FF] group-hover:translate-x-1 transition-all" />
+                      <div className="text-right min-w-[120px]">
+                        <div className="text-xs font-semibold text-neu-secondary">Invoice Amount</div>
+                        <div className="text-lg font-extrabold font-display text-neu-primary">
+                          {formatRupees(inv.amount)}
+                        </div>
+                      </div>
+
+                      <ChevronRight size={20} className="text-neu-secondary group-hover:text-[#6C63FF] group-hover:translate-x-1 transition-all" />
+                    </div>
                   </div>
-                </div>
-              );
-            })}
-          </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
     </div>

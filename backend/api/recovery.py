@@ -9,12 +9,16 @@ from backend.models.schemas import (
     RecommendRequest,
     RecommendResponse,
     ExecuteRequest,
-    ExecuteResponse
+    ExecuteResponse,
+    OutreachRequest,
+    OutreachResponse,
+    OutreachChannelDetail
 )
 from backend.services.scoring import rank_invoices, classify_tier
 from backend.services.optimizer import optimize as optimize_offer
 from backend.ml.train import predict_acceptance
 from backend.services.razorpay import create_payment_link
+from backend.services.outreach import send_recovery_email, send_recovery_sms
 from backend.db.database import log_event
 
 router = APIRouter(prefix="", tags=["RECOVERY & OPTIMIZER"])
@@ -178,6 +182,18 @@ def recommend_recovery_offer(invoice_id: str, payload: RecommendRequest):
 def execute_recovery_offer(invoice_id: str, payload: ExecuteRequest):
     detail = get_invoice_detail(invoice_id)
 
+    # Check if a valid payment link already exists
+    executions_store = data_store.setdefault("executions_store", {})
+    existing = executions_store.get(invoice_id)
+    if existing and existing.get("payment_link_url"):
+        return ExecuteResponse(
+            status="success",
+            invoice_id=invoice_id,
+            agreed_amount=existing.get("agreed_amount", payload.offer_amount),
+            payment_link_id=existing["payment_link_id"],
+            payment_link_url=existing["payment_link_url"]
+        )
+
     plink_res = create_payment_link(
         invoice_id=invoice_id,
         offer_amount=payload.offer_amount,
@@ -185,7 +201,7 @@ def execute_recovery_offer(invoice_id: str, payload: ExecuteRequest):
         customer_name=detail.customer_id
     )
 
-    data_store.get("executions_store", {})[invoice_id] = {
+    executions_store[invoice_id] = {
         "agreed_amount": payload.offer_amount,
         "payment_link_id": plink_res["id"],
         "payment_link_url": plink_res["short_url"]
@@ -199,4 +215,130 @@ def execute_recovery_offer(invoice_id: str, payload: ExecuteRequest):
         agreed_amount=payload.offer_amount,
         payment_link_id=plink_res["id"],
         payment_link_url=plink_res["short_url"]
+    )
+
+@router.post("/recovery/{invoice_id}/outreach", response_model=OutreachResponse)
+def execute_customer_outreach(invoice_id: str, payload: OutreachRequest):
+    detail = get_invoice_detail(invoice_id)
+    cust_id = detail.customer_id
+
+    executions_store = data_store.setdefault("executions_store", {})
+    existing_exec = executions_store.get(invoice_id)
+
+    offer_amt = payload.offer_amount
+    payment_link_id = None
+    payment_link_url = None
+
+    if existing_exec and existing_exec.get("payment_link_url"):
+        payment_link_id = existing_exec["payment_link_id"]
+        payment_link_url = existing_exec["payment_link_url"]
+        offer_amt = offer_amt or existing_exec.get("agreed_amount", round(detail.amount * 0.95, 2))
+    else:
+        if not offer_amt:
+            floor = payload.merchant_floor if payload.merchant_floor is not None else float(round(detail.amount * 0.94))
+            rec_res = recommend_recovery_offer(invoice_id, RecommendRequest(merchant_floor=floor))
+            best = rec_res.best_offer
+            offer_amt = best.offer_amount if best else floor
+
+        try:
+            plink_res = create_payment_link(
+                invoice_id=invoice_id,
+                offer_amount=offer_amt,
+                customer_email=f"{cust_id.lower()}@example.com",
+                customer_name=f"Customer {cust_id}"
+            )
+            payment_link_id = plink_res["id"]
+            payment_link_url = plink_res["short_url"]
+            executions_store[invoice_id] = {
+                "agreed_amount": offer_amt,
+                "payment_link_id": payment_link_id,
+                "payment_link_url": payment_link_url
+            }
+            log_event(invoice_id, "PAYMENT_LINK_CREATED", {"amount": offer_amt, "link_id": payment_link_id})
+        except HTTPException as he:
+            err_detail = str(he.detail)
+            log_event(invoice_id, "OUTREACH_FAILED", {"reason": err_detail})
+            raise HTTPException(
+                status_code=he.status_code,
+                detail=f"Customer outreach could not be sent because a Razorpay payment link could not be created. {err_detail}"
+            )
+        except Exception as e:
+            err_detail = str(e)
+            log_event(invoice_id, "OUTREACH_FAILED", {"reason": err_detail})
+            raise HTTPException(
+                status_code=500,
+                detail=f"Customer outreach could not be sent because a Razorpay payment link could not be created. {err_detail}"
+            )
+
+    discount_pct = round(((detail.amount - offer_amt) / detail.amount) * 100.0, 1) if detail.amount > 0 else 0.0
+    terms_days = 90
+
+    cust_df = data_store.get("customers_df")
+    cust_name = cust_id
+    cust_email = f"{cust_id.lower()}@example.com"
+    cust_phone = "+919876543210"
+
+    if cust_df is not None:
+        m_cust = cust_df[cust_df["customer_id"] == cust_id]
+        if not m_cust.empty:
+            c_row = m_cust.iloc[0].to_dict()
+            cust_name = str(c_row.get("name") or c_row.get("company") or cust_id)
+            if c_row.get("email"):
+                cust_email = str(c_row.get("email"))
+            if c_row.get("phone"):
+                cust_phone = str(c_row.get("phone"))
+
+    channel_results = {}
+    requested_channels = payload.channels or ["email", "sms"]
+
+    if "email" in requested_channels:
+        email_res = send_recovery_email(
+            invoice_id=invoice_id,
+            customer_id=cust_id,
+            customer_name=cust_name,
+            recipient_email=cust_email,
+            original_amount=detail.amount,
+            offer_amount=offer_amt,
+            discount_pct=discount_pct,
+            payment_terms_days=terms_days,
+            payment_url=payment_link_url
+        )
+        channel_results["email"] = OutreachChannelDetail(
+            status=email_res["status"],
+            recipient=email_res.get("recipient"),
+            provider=email_res.get("provider"),
+            message_id=email_res.get("message_id"),
+            error=email_res.get("error")
+        )
+
+    if "sms" in requested_channels:
+        sms_res = send_recovery_sms(
+            invoice_id=invoice_id,
+            customer_id=cust_id,
+            recipient_phone=cust_phone,
+            offer_amount=offer_amt,
+            payment_url=payment_link_url
+        )
+        channel_results["sms"] = OutreachChannelDetail(
+            status=sms_res["status"],
+            recipient=sms_res.get("recipient"),
+            provider=sms_res.get("provider"),
+            message_id=sms_res.get("message_id"),
+            error=sms_res.get("error")
+        )
+
+    statuses = [c.status for c in channel_results.values()]
+    if all(s in ["sent", "already_sent"] for s in statuses):
+        overall = "success"
+    elif any(s in ["sent", "already_sent"] for s in statuses):
+        overall = "partial_success"
+    else:
+        overall = "failed"
+
+    return OutreachResponse(
+        status=overall,
+        invoice_id=invoice_id,
+        payment_link_id=payment_link_id,
+        payment_link_url=payment_link_url,
+        channels=channel_results
     )

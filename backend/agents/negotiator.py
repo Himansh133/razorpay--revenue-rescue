@@ -7,6 +7,7 @@ from backend.services.scoring import rank_invoices, classify_tier
 from backend.services.optimizer import optimize as optimize_offer
 from backend.ml.train import predict_acceptance
 from backend.services.razorpay import create_payment_link
+from backend.services.outreach import send_recovery_email, send_recovery_sms
 from backend.db.database import log_event
 
 try:
@@ -83,6 +84,25 @@ if HAS_GEMINI_SDK:
                 },
                 required=["invoice_id", "offer_amount"]
             )
+        ),
+        types.FunctionDeclaration(
+            name="send_recovery_message",
+            description="Dispatch customer recovery offer via Email and SMS. MUST be executed ONLY after create_payment_link has succeeded with a valid Razorpay payment link. NEVER calculate or invent contact details or URLs.",
+            parameters=types.Schema(
+                type=types.Type.OBJECT,
+                properties={
+                    "invoice_id": types.Schema(
+                        type=types.Type.STRING,
+                        description="The invoice ID to dispatch recovery outreach for"
+                    ),
+                    "channels": types.Schema(
+                        type=types.Type.ARRAY,
+                        items=types.Schema(type=types.Type.STRING),
+                        description="Optional list of channels: ['email', 'sms']. Defaults to both."
+                    )
+                },
+                required=["invoice_id"]
+            )
         )
     ])]
 else:
@@ -153,6 +173,25 @@ AGENT_TOOLS = [
                 }
             },
             "required": ["invoice_id", "offer_amount"]
+        }
+    },
+    {
+        "name": "send_recovery_message",
+        "description": "Dispatch customer recovery offer via Email and SMS. MUST be executed ONLY after create_payment_link has succeeded with a valid Razorpay payment link. NEVER calculate or invent contact details or URLs.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "invoice_id": {
+                    "type": "string",
+                    "description": "The invoice ID to dispatch recovery outreach for"
+                },
+                "channels": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Optional list of channels: ['email', 'sms']. Defaults to both."
+                }
+            },
+            "required": ["invoice_id"]
         }
     }
 ]
@@ -272,6 +311,19 @@ def execute_agent_tool(tool_name: str, tool_input: dict, invoices_df: pd.DataFra
         inv_id = str(tool_input.get("invoice_id", ""))
         requested_amount = float(tool_input.get("offer_amount", 0.0))
 
+        # Check existing payment link in data store to prevent duplicate calls
+        from backend.api.recovery import data_store
+        executions_store = data_store.setdefault("executions_store", {})
+        existing = executions_store.get(inv_id)
+        if existing and existing.get("payment_link_url"):
+            return {
+                "status": "success",
+                "invoice_id": inv_id,
+                "agreed_amount": existing.get("agreed_amount", requested_amount),
+                "payment_link_id": existing["payment_link_id"],
+                "payment_link_url": existing["payment_link_url"]
+            }
+
         # Financial Safety Guardrail Check
         profile = execute_agent_tool("get_customer_profile", {"invoice_id": inv_id}, invoices_df, customers_df)
         if "error" in profile:
@@ -294,20 +346,102 @@ def execute_agent_tool(tool_name: str, tool_input: dict, invoices_df: pd.DataFra
                 customer_name=profile["customer_id"]
             )
 
-            return {
+            res_payload = {
                 "status": "success",
                 "invoice_id": inv_id,
                 "agreed_amount": requested_amount,
                 "payment_link_id": plink_res["id"],
                 "payment_link_url": plink_res["short_url"]
             }
+
+            executions_store[inv_id] = {
+                "agreed_amount": requested_amount,
+                "payment_link_id": plink_res["id"],
+                "payment_link_url": plink_res["short_url"]
+            }
+
+            log_event(inv_id, "PAYMENT_LINK_CREATED", {"amount": requested_amount, "link_id": plink_res["id"]})
+            return res_payload
         except Exception as err:
+            log_event(inv_id, "OUTREACH_FAILED", {"reason": f"Razorpay link failed: {str(err)}"})
             return {
                 "status": "error",
                 "invoice_id": inv_id,
                 "agreed_amount": requested_amount,
                 "error": f"Razorpay Payment Link Creation Failed: {str(err)}"
             }
+
+    elif tool_name == "send_recovery_message":
+        inv_id = str(tool_input.get("invoice_id", ""))
+        channels = tool_input.get("channels") or ["email", "sms"]
+
+        # Order Guardrail Check: Check whether a valid Razorpay payment link exists
+        from backend.api.recovery import data_store
+        executions_store = data_store.setdefault("executions_store", {})
+        existing = executions_store.get(inv_id)
+
+        if not existing or not existing.get("payment_link_url") or not existing.get("payment_link_id"):
+            return {
+                "status": "error",
+                "invoice_id": inv_id,
+                "error": "Agent Order Guardrail Violation: Cannot send recovery outreach before a valid Razorpay payment link is created."
+            }
+
+        profile = execute_agent_tool("get_customer_profile", {"invoice_id": inv_id}, invoices_df, customers_df)
+        if "error" in profile:
+            return profile
+
+        cust_id = profile["customer_id"]
+        inv_amt = profile["invoice_amount"]
+        agreed_amt = existing.get("agreed_amount", inv_amt * 0.95)
+        payment_url = existing["payment_link_url"]
+        discount_pct = round(((inv_amt - agreed_amt) / inv_amt) * 100.0, 1) if inv_amt > 0 else 0.0
+
+        cust_name = cust_id
+        cust_email = f"{cust_id.lower()}@example.com"
+        cust_phone = "+919876543210"
+
+        if customers_df is not None:
+            m_cust = customers_df[customers_df["customer_id"] == cust_id]
+            if not m_cust.empty:
+                c_row = m_cust.iloc[0].to_dict()
+                cust_name = str(c_row.get("name") or c_row.get("company") or cust_id)
+                if c_row.get("email"):
+                    cust_email = str(c_row.get("email"))
+                if c_row.get("phone"):
+                    cust_phone = str(c_row.get("phone"))
+
+        channel_res = {}
+        if "email" in channels:
+            em_res = send_recovery_email(
+                invoice_id=inv_id,
+                customer_id=cust_id,
+                customer_name=cust_name,
+                recipient_email=cust_email,
+                original_amount=inv_amt,
+                offer_amount=agreed_amt,
+                discount_pct=discount_pct,
+                payment_terms_days=90,
+                payment_url=payment_url
+            )
+            channel_res["email"] = em_res
+
+        if "sms" in channels:
+            sms_res = send_recovery_sms(
+                invoice_id=inv_id,
+                customer_id=cust_id,
+                recipient_phone=cust_phone,
+                offer_amount=agreed_amt,
+                payment_url=payment_url
+            )
+            channel_res["sms"] = sms_res
+
+        return {
+            "status": "success",
+            "invoice_id": inv_id,
+            "payment_link_url": payment_url,
+            "channels": channel_res
+        }
 
     else:
         return {"error": f"Unknown tool '{tool_name}'"}
@@ -361,9 +495,9 @@ def run_deterministic_fallback(
 
     best = opt_res.get("best_offer")
     
-    # Explicit Intent Check for Payment Link Creation in Fallback Mode
+    # Intent detection for payment link creation and outreach
     msg_lower = user_message.lower()
-    requests_payment_link = any(kw in msg_lower for kw in ["create", "generate", "send", "payment link", "pay link", "execute"])
+    requests_execution = any(kw in msg_lower for kw in ["create", "generate", "send", "payment link", "pay link", "execute", "recover", "outreach", "email", "sms"])
 
     if fallback_reason == "NO_API_KEY":
         tag = "[Deterministic Fallback Mode (No LLM Key)]"
@@ -374,7 +508,7 @@ def run_deterministic_fallback(
     else:
         tag = "[Deterministic Fallback Mode]"
 
-    if best and requests_payment_link:
+    if best and requests_execution:
         plink = execute_agent_tool("create_payment_link", {"invoice_id": target_inv, "offer_amount": best["offer_amount"]}, invoices_df, customers_df)
         tool_calls_made.append({
             "tool_name": "create_payment_link",
@@ -383,20 +517,29 @@ def run_deterministic_fallback(
         })
 
         if plink.get("status") == "success":
+            outreach = execute_agent_tool("send_recovery_message", {"invoice_id": target_inv, "channels": ["email", "sms"]}, invoices_df, customers_df)
+            tool_calls_made.append({
+                "tool_name": "send_recovery_message",
+                "input": {"invoice_id": target_inv, "channels": ["email", "sms"]},
+                "result": outreach
+            })
+
             narration = (
                 f"{tag}\n"
                 f"Analyzed invoice {target_inv} for customer {prof['customer_id']} (Original Amount: ₹{prof['invoice_amount']:,.2f}, Recovery Score: {prof['recovery_score']:.4f}).\n"
                 f"Evaluated {opt_res['candidates_evaluated']} candidate offers against merchant floor ₹{opt_res['merchant_floor']:,.2f}.\n"
                 f"Selected optimal offer: ₹{best['offer_amount']:,.2f} ({best['discount_pct']}% discount, {best['days_to_payment']}-day terms) "
                 f"with predicted acceptance probability {best['acceptance_probability']*100:.2f}% yielding Expected Value ₹{best['expected_value']:,.2f}.\n"
-                f"Created Razorpay Test Payment Link: {plink['payment_link_url']}"
+                f"Created Razorpay Test Payment Link: {plink['payment_link_url']}\n"
+                f"Customer Outreach Dispatched: Email ({outreach.get('channels', {}).get('email', {}).get('status', 'unknown')}), SMS ({outreach.get('channels', {}).get('sms', {}).get('status', 'unknown')}). Invoice is now awaiting payment."
             )
         else:
             narration = (
                 f"{tag}\n"
                 f"Analyzed invoice {target_inv} for customer {prof['customer_id']} (Original Amount: ₹{prof['invoice_amount']:,.2f}, Recovery Score: {prof['recovery_score']:.4f}).\n"
                 f"Evaluated {opt_res['candidates_evaluated']} candidate offers against merchant floor ₹{opt_res['merchant_floor']:,.2f}.\n"
-                f"Attempted to create Razorpay Payment Link for offer ₹{best['offer_amount']:,.2f}, but received error: {plink.get('error', 'Payment link creation failed')}"
+                f"Attempted to create Razorpay Payment Link for offer ₹{best['offer_amount']:,.2f}, but received error: {plink.get('error', 'Payment link creation failed')}.\n"
+                f"Customer outreach could not be sent because a Razorpay payment link could not be created."
             )
     elif best:
         narration = (
@@ -431,7 +574,6 @@ def run_negotiator_agent(user_message: str, invoices_df: pd.DataFrame, customers
         print("[AGENT-BRAIN] No LLM API KEY found. Using safe deterministic fallback mode.")
         return run_deterministic_fallback(user_message, invoices_df, customers_df)
 
-    # 1. Primary LLM Provider: Google Gemini API (gemini-3.7-flash)
     if gemini_key:
         if not HAS_GEMINI_SDK:
             print("[AGENT-BRAIN] Gemini API key configured but google-genai SDK not installed. Using fallback.")
@@ -441,15 +583,18 @@ def run_negotiator_agent(user_message: str, invoices_df: pd.DataFrame, customers
 
             system_instruction = (
                 "You are the Revenue Rescue Negotiator Agent, an AI financial recovery assistant.\n"
-                "Your objective is to help merchants investigate overdue invoices, analyze recoverability, and optimize recovery offers.\n"
-                "STRICT ACTION GATING RULE:\n"
-                "- NEVER call 'create_payment_link' UNLESS the user explicitly asks to create, generate, send, or execute a payment link.\n"
-                "- If the user only asks for analysis, recommendations, or best offers, evaluate customer profile and optimal offer without creating a payment link.\n"
-                "STRICT FINANCIAL SAFETY RULES:\n"
-                "1. NEVER calculate or invent invoice amounts, discount amounts, merchant floors, acceptance probabilities, or expected values yourself.\n"
-                "2. ALWAYS call backend tools ('rank_invoices', 'get_customer_profile', 'optimize_offer', 'create_payment_link') to obtain deterministic mathematical calculations.\n"
-                "3. Explain the returned numbers accurately to the user.\n"
-                "4. NEVER create a payment link without first executing optimize_offer to verify the merchant floor and valid offer amount."
+                "Your objective is to help merchants investigate overdue invoices, analyze recoverability, optimize recovery offers, create payment links, and dispatch customer outreach.\n"
+                "REQUIRED TOOL CALLING WORKFLOW FOR RECOVERY & OUTREACH:\n"
+                "When a user asks to recover an invoice, create & send an offer, or run customer outreach, call tools in this exact order:\n"
+                "1. get_customer_profile(invoice_id=...)\n"
+                "2. optimize_offer(invoice_id=...)\n"
+                "3. create_payment_link(invoice_id=..., offer_amount=...)\n"
+                "4. send_recovery_message(invoice_id=..., channels=['email', 'sms'])\n\n"
+                "STRICT SAFETY & GUARDRAIL RULES:\n"
+                "1. NEVER call 'create_payment_link' or 'send_recovery_message' UNLESS the user explicitly requests to create, generate, send, or execute a recovery offer or outreach.\n"
+                "2. NEVER calculate or invent financial amounts, merchant floors, probabilities, customer emails, customer phone numbers, or Razorpay payment URLs yourself.\n"
+                "3. NEVER call 'send_recovery_message' if 'create_payment_link' failed or was not called.\n"
+                "4. Always present the returned calculations and outreach statuses accurately to the user."
             )
 
             config = types.GenerateContentConfig(
@@ -487,7 +632,6 @@ def run_negotiator_agent(user_message: str, invoices_df: pd.DataFrame, customers
                         tool_name = call.name
                         tool_args = dict(call.args) if call.args else {}
 
-                        # Execute tool deterministically in backend
                         tool_res = execute_agent_tool(tool_name, tool_args, invoices_df, customers_df)
 
                         tool_calls_made.append({
@@ -526,10 +670,16 @@ def run_negotiator_agent(user_message: str, invoices_df: pd.DataFrame, customers
         except Exception as err:
             print(f"[AGENT-BRAIN] Gemini LLM execution error: {err}. Falling back to deterministic mode.")
             err_msg = str(err)
-            short_err = "503/High Demand" if "503" in err_msg or "UNAVAILABLE" in err_msg else ("Quota/Rate Limit" if "429" in err_msg or "RESOURCE_EXHAUSTED" in err_msg else "API Error")
+            if "401" in err_msg or "UNAUTHENTICATED" in err_msg or "ACCESS_TOKEN" in err_msg or "Invalid key" in err_msg:
+                short_err = "401/Invalid Key"
+            elif "503" in err_msg or "UNAVAILABLE" in err_msg:
+                short_err = "503/High Demand"
+            elif "429" in err_msg or "RESOURCE_EXHAUSTED" in err_msg:
+                short_err = "Quota/Rate Limit"
+            else:
+                short_err = "API Error"
             return run_deterministic_fallback(user_message, invoices_df, customers_df, fallback_reason="GEMINI_API_ERROR", error_details=short_err)
 
-    # 2. Secondary Migration Provider: Anthropic API
     elif anthropic_key:
         try:
             import anthropic
@@ -537,15 +687,18 @@ def run_negotiator_agent(user_message: str, invoices_df: pd.DataFrame, customers
 
             system_prompt = (
                 "You are the Revenue Rescue Negotiator Agent, an AI financial recovery assistant.\n"
-                "Your objective is to help merchants investigate overdue invoices, analyze recoverability, and optimize recovery offers.\n"
-                "STRICT ACTION GATING RULE:\n"
-                "- NEVER call 'create_payment_link' UNLESS the user explicitly asks to create, generate, send, or execute a payment link.\n"
-                "- If the user only asks for analysis, recommendations, or best offers, evaluate customer profile and optimal offer without creating a payment link.\n"
-                "STRICT FINANCIAL SAFETY RULES:\n"
-                "1. NEVER calculate or invent invoice amounts, discount amounts, merchant floors, acceptance probabilities, or expected values yourself.\n"
-                "2. ALWAYS call backend tools ('rank_invoices', 'get_customer_profile', 'optimize_offer', 'create_payment_link') to obtain deterministic mathematical calculations.\n"
-                "3. Explain the returned numbers accurately to the user.\n"
-                "4. NEVER create a payment link without first executing optimize_offer to verify the merchant floor and valid offer amount."
+                "Your objective is to help merchants investigate overdue invoices, analyze recoverability, optimize recovery offers, create payment links, and dispatch customer outreach.\n"
+                "REQUIRED TOOL CALLING WORKFLOW FOR RECOVERY & OUTREACH:\n"
+                "When a user asks to recover an invoice, create & send an offer, or run customer outreach, call tools in this exact order:\n"
+                "1. get_customer_profile(invoice_id=...)\n"
+                "2. optimize_offer(invoice_id=...)\n"
+                "3. create_payment_link(invoice_id=..., offer_amount=...)\n"
+                "4. send_recovery_message(invoice_id=..., channels=['email', 'sms'])\n\n"
+                "STRICT SAFETY & GUARDRAIL RULES:\n"
+                "1. NEVER call 'create_payment_link' or 'send_recovery_message' UNLESS the user explicitly requests to create, generate, send, or execute a recovery offer or outreach.\n"
+                "2. NEVER calculate or invent financial amounts, merchant floors, probabilities, customer emails, customer phone numbers, or Razorpay payment URLs yourself.\n"
+                "3. NEVER call 'send_recovery_message' if 'create_payment_link' failed or was not called.\n"
+                "4. Always present the returned calculations and outreach statuses accurately to the user."
             )
 
             messages = [{"role": "user", "content": user_message}]

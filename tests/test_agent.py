@@ -1,4 +1,5 @@
 import os
+import pytest
 import pandas as pd
 from unittest.mock import patch, MagicMock
 from backend.agents.negotiator import AGENT_TOOLS, execute_agent_tool, run_negotiator_agent, MAX_TOOL_ITERATIONS
@@ -12,13 +13,18 @@ def get_sample_data():
     cust_df = pd.read_csv(cust_path)
     return inv_df, cust_df
 
+@pytest.fixture
+def sample_data():
+    return get_sample_data()
+
 def test_1_tool_schemas_validity():
-    assert len(AGENT_TOOLS) == 4
+    assert len(AGENT_TOOLS) == 5
     tool_names = [t["name"] for t in AGENT_TOOLS]
     assert "rank_invoices" in tool_names
     assert "get_customer_profile" in tool_names
     assert "optimize_offer" in tool_names
     assert "create_payment_link" in tool_names
+    assert "send_recovery_message" in tool_names
 
     for tool in AGENT_TOOLS:
         assert "description" in tool
@@ -86,6 +92,8 @@ def test_8_create_payment_link_floor_guardrail_rejection(sample_data):
     print("✓ Test 8 Passed: Payment link creation strictly rejects amounts below merchant floor")
 
 def test_9_create_payment_link_valid_amount(sample_data):
+    from backend.api.recovery import data_store
+    data_store["executions_store"] = {}
     inv_df, cust_df = sample_data
     mock_resp = MagicMock()
     mock_resp.status_code = 200
@@ -104,6 +112,8 @@ def test_9_create_payment_link_valid_amount(sample_data):
     print("✓ Test 9 Passed: Valid offer amount successfully generates payment link")
 
 def test_10_razorpay_error_handling_no_demo_links(sample_data):
+    from backend.api.recovery import data_store
+    data_store["executions_store"] = {}
     inv_df, cust_df = sample_data
     mock_401 = MagicMock()
     mock_401.status_code = 401

@@ -8,3 +8,5 @@ scikit-learn
 python-dotenv
 requests
 google-genai
+resend
+twilio

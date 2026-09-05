@@ -5,6 +5,8 @@ class HealthResponse(BaseModel):
     status: str
     version: str = "1.0.0"
     gemini_configured: bool = False
+    email_configured: bool = False
+    sms_configured: bool = False
     active_provider: str = "fallback"
     model: str = "deterministic-engine"
     database_connected: bool = True
@@ -103,6 +105,25 @@ class ExecuteResponse(BaseModel):
     agreed_amount: float
     payment_link_id: str
     payment_link_url: str
+
+class OutreachChannelDetail(BaseModel):
+    status: str
+    recipient: Optional[str] = None
+    provider: Optional[str] = None
+    message_id: Optional[str] = None
+    error: Optional[str] = None
+
+class OutreachRequest(BaseModel):
+    channels: List[str] = Field(default_factory=lambda: ["email", "sms"])
+    merchant_floor: Optional[float] = None
+    offer_amount: Optional[float] = None
+
+class OutreachResponse(BaseModel):
+    status: str
+    invoice_id: str
+    payment_link_id: Optional[str] = None
+    payment_link_url: Optional[str] = None
+    channels: Dict[str, OutreachChannelDetail]
 
 class WebhookResponse(BaseModel):
     status: str

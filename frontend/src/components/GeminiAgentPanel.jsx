@@ -10,7 +10,9 @@ import {
   ExternalLink,
   ChevronRight,
   RefreshCw,
-  AlertTriangle
+  AlertTriangle,
+  Mail,
+  MessageSquare
 } from 'lucide-react';
 
 export default function GeminiAgentPanel({ invoiceId, customerName, onRefresh }) {
@@ -18,7 +20,7 @@ export default function GeminiAgentPanel({ invoiceId, customerName, onRefresh })
     {
       id: 'welcome',
       sender: 'agent',
-      text: `Hello! I am the Revenue Rescue Gemini Agent. Ask me to analyze invoice ${invoiceId || ''}, evaluate candidate offers, or generate a payment link.`,
+      text: `Hello! I am the Revenue Rescue Gemini Agent. Ask me to analyze invoice ${invoiceId || ''}, evaluate candidate offers, create payment links, or send recovery offers via Email & SMS.`,
       toolCalls: [],
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     }
@@ -94,8 +96,8 @@ export default function GeminiAgentPanel({ invoiceId, customerName, onRefresh })
       };
       setMessages(prev => [...prev, agentMsg]);
 
-      // If a payment link was successfully created by the agent, trigger parent refresh
-      if (res.tool_calls_made?.some(t => t.tool_name === 'create_payment_link' && t.result?.status === 'success') && onRefresh) {
+      // Trigger parent refresh if payment link or outreach was executed
+      if (res.tool_calls_made?.some(t => ['create_payment_link', 'send_recovery_message'].includes(t.tool_name)) && onRefresh) {
         onRefresh();
       }
     } catch (err) {
@@ -125,8 +127,8 @@ export default function GeminiAgentPanel({ invoiceId, customerName, onRefresh })
   const quickPrompts = [
     `What is the best offer for ${invoiceId || 'this invoice'}?`,
     `Explain Decision`,
-    `Find Best Opportunity`,
-    `Create Payment Link`
+    `Create Payment Link`,
+    `Send Offer via Email + SMS`
   ];
 
   const isLiveGemini = (lastResponseProvider === 'gemini' && !lastResponseFallback) || 
@@ -151,7 +153,7 @@ export default function GeminiAgentPanel({ invoiceId, customerName, onRefresh })
               </span>
             </div>
             <p className="text-xs font-semibold text-neu-secondary">
-              Interactive LLM Reasoning & Autonomous Tool Calling
+              Interactive LLM Reasoning & Autonomous Recovery Pipeline
             </p>
           </div>
         </div>
@@ -257,6 +259,12 @@ export default function GeminiAgentPanel({ invoiceId, customerName, onRefresh })
                             >
                               Open <ExternalLink size={12} />
                             </a>
+                          </div>
+                        )}
+                        {tCall.tool_name === 'send_recovery_message' && tCall.result?.status === 'success' && (
+                          <div className="pt-1 flex items-center justify-between font-mono text-[11px] text-[#38B2AC] font-bold">
+                            <span className="flex items-center gap-1"><Mail size={12} /> <MessageSquare size={12} /> Outreach Dispatched</span>
+                            <span className="text-emerald-500 font-bold uppercase">PROCESSED</span>
                           </div>
                         )}
                         {tCall.result?.status === 'error' && (
