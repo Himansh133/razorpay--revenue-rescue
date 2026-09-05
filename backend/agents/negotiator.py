@@ -567,8 +567,8 @@ def run_negotiator_agent(user_message: str, invoices_df: pd.DataFrame, customers
     """
     Real LLM Tool-Calling Negotiator Agent using Google Gemini API (gemini-3.7-flash) with fallback.
     """
-    gemini_key = GEMINI_API_KEY or os.getenv("GEMINI_API_KEY", "")
-    anthropic_key = ANTHROPIC_API_KEY or os.getenv("ANTHROPIC_API_KEY", "")
+    gemini_key = os.getenv("GEMINI_API_KEY") if os.getenv("GEMINI_API_KEY") is not None else GEMINI_API_KEY
+    anthropic_key = os.getenv("ANTHROPIC_API_KEY") if os.getenv("ANTHROPIC_API_KEY") is not None else ANTHROPIC_API_KEY
 
     if not gemini_key and not anthropic_key:
         print("[AGENT-BRAIN] No LLM API KEY found. Using safe deterministic fallback mode.")

@@ -17,7 +17,7 @@ export default function OpportunitiesList({ onSelectInvoice }) {
       try {
         const [oppRes, invRes] = await Promise.all([
           getOpportunities(5),
-          getInvoices(tierFilter || null, 1000)
+          getInvoices(tierFilter || null, 0)
         ]);
         setLeaks(oppRes.opportunities || []);
         setInvoices(invRes.invoices || []);

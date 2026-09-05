@@ -9999,4 +9999,5 @@ CUST009997,Arjun Malhotra,Mehta Foods Pvt Ltd,b2b,352300.0,49,44,5,7.7,3,3,Ahmed
 CUST009998,Kiara Patel,,group_d_broken_promise,32100.0,6,3,3,34.2,3,1,Hyderabad,iOS,,
 CUST009999,Aditya Iyer,,normal,28200.0,1,1,0,3.4,2,2,Chennai,Desktop,,
 CUST010000,Kiara Singh,,normal,36400.0,6,5,1,5.7,0,0,Mumbai,iOS,,
-CUST_DEMO_001,Test Seed Customer,Demo Enterprise,high_value,110000.0,12,10,2,15.0,1,1,Mumbai,Desktop,test.seed@example.com,+919998887776
+CUST_DEMO_001,Test Seed Customer,Demo Enterprise,high_value,110000.0,12,10,2,15.0,1,1,Mumbai,Desktop,test.seed@example.com,919998887776.0
+CUST_DEMO_002,Shreyanshu Kumar,Demo Enterprise,high_value,20.0,12,10,2,15.0,1,1,Mumbai,Desktop,niruramesh501@gmail.com,+919110058109
