@@ -48,8 +48,12 @@ export async function getOpportunities(topN = 5) {
   return fetchJSON(`${BASE_URL}/opportunities?top_n=${topN}`);
 }
 
-export async function getInvoices(tier = 'high_priority', minAmount = 0) {
-  return fetchJSON(`${BASE_URL}/invoices?tier=${tier}&min_amount=${minAmount}`);
+export async function getInvoices(tier = null, minAmount = 0) {
+  let url = `${BASE_URL}/invoices?min_amount=${minAmount}`;
+  if (tier && tier !== 'all') {
+    url += `&tier=${tier}`;
+  }
+  return fetchJSON(url);
 }
 
 export async function getInvoiceDetail(invoiceId) {
@@ -67,6 +71,17 @@ export async function executeRecoveryOffer(invoiceId, offerAmount) {
   return fetchJSON(`${BASE_URL}/recovery/${invoiceId}/execute`, {
     method: 'POST',
     body: JSON.stringify({ offer_amount: offerAmount }),
+  });
+}
+
+export async function executeCustomerOutreach(invoiceId, channels = ['email', 'sms'], offerAmount = null, merchantFloor = null) {
+  return fetchJSON(`${BASE_URL}/recovery/${invoiceId}/outreach`, {
+    method: 'POST',
+    body: JSON.stringify({
+      channels,
+      offer_amount: offerAmount,
+      merchant_floor: merchantFloor
+    }),
   });
 }
 

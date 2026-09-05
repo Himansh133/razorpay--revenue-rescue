@@ -17,6 +17,7 @@ class InvoiceModel(Base):
     updated_at = Column(DateTime(timezone=True), default=lambda: datetime.datetime.now(datetime.timezone.utc), onupdate=lambda: datetime.datetime.now(datetime.timezone.utc))
 
     payments = relationship("PaymentModel", back_populates="invoice")
+    outreach_records = relationship("OutreachRecordModel", back_populates="invoice")
 
 class PaymentModel(Base):
     __tablename__ = "payments"
@@ -54,3 +55,19 @@ class AuditEventModel(Base):
     actor = Column(String, default="system", nullable=False)
     detail = Column(Text, nullable=False)
     summary = Column(Text, nullable=False)
+
+class OutreachRecordModel(Base):
+    __tablename__ = "outreach_records"
+
+    id = Column(String, primary_key=True, default=lambda: f"outr_{uuid.uuid4().hex[:12]}")
+    invoice_id = Column(String, ForeignKey("invoices.invoice_id"), index=True, nullable=False)
+    customer_id = Column(String, index=True, nullable=False)
+    channel = Column(String, nullable=False)  # "email" or "sms"
+    recipient = Column(String, nullable=False)
+    status = Column(String, nullable=False)   # "sent", "failed", "already_sent", "unavailable"
+    provider = Column(String, nullable=False) # "resend", "twilio", "mock"
+    provider_message_id = Column(String, nullable=True)
+    error = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.datetime.now(datetime.timezone.utc))
+
+    invoice = relationship("InvoiceModel", back_populates="outreach_records")

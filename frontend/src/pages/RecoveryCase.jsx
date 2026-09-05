@@ -3,6 +3,7 @@ import {
   getInvoiceDetail,
   recommendRecoveryOffer,
   executeRecoveryOffer,
+  executeCustomerOutreach,
   getInvoiceAuditTrail,
   triggerMockWebhook
 } from '../api';
@@ -19,7 +20,10 @@ import {
   Zap,
   Lock,
   ListOrdered,
-  AlertTriangle
+  AlertTriangle,
+  Mail,
+  MessageSquare,
+  ShieldCheck
 } from 'lucide-react';
 
 export default function RecoveryCase({ invoiceId, onBack }) {
@@ -30,6 +34,13 @@ export default function RecoveryCase({ invoiceId, onBack }) {
   const [executing, setExecuting] = useState(false);
   const [executionResult, setExecutionResult] = useState(null);
   const [executionError, setExecutionError] = useState(null);
+
+  // Customer Outreach State
+  const [outreachSending, setOutreachSending] = useState(false);
+  const [outreachResult, setOutreachResult] = useState(null);
+  const [outreachError, setOutreachError] = useState(null);
+  const [selectedChannels, setSelectedChannels] = useState(['email', 'sms']);
+
   const [auditTrail, setAuditTrail] = useState(null);
   const [webhookSimulating, setWebhookSimulating] = useState(false);
 
@@ -116,6 +127,42 @@ export default function RecoveryCase({ invoiceId, onBack }) {
     } finally {
       setExecuting(false);
     }
+  };
+
+  const handleSendOutreach = async (overrideChannels = null) => {
+    const channelsToUse = overrideChannels || selectedChannels;
+    if (!channelsToUse || channelsToUse.length === 0) return;
+    setOutreachError(null);
+    setOutreachResult(null);
+    try {
+      setOutreachSending(true);
+      const offerAmt = recommendation?.best_offer?.offer_amount;
+      const res = await executeCustomerOutreach(invoiceId, channelsToUse, offerAmt, merchantFloor);
+      setOutreachResult(res);
+      if (res.payment_link_url) {
+        setExecutionResult({
+          payment_link_id: res.payment_link_id,
+          payment_link_url: res.payment_link_url
+        });
+      }
+      await fetchAuditTrail(invoiceId);
+    } catch (err) {
+      console.error("Outreach error:", err);
+      setOutreachError(err.message || 'Customer Outreach Service Error');
+    } finally {
+      setOutreachSending(false);
+    }
+  };
+
+  const toggleChannel = (channel) => {
+    setSelectedChannels(prev => {
+      if (prev.includes(channel)) {
+        if (prev.length === 1) return prev; // Keep at least one selected
+        return prev.filter(c => c !== channel);
+      } else {
+        return [...prev, channel];
+      }
+    });
   };
 
   const handleSimulateWebhook = async () => {
@@ -279,27 +326,109 @@ export default function RecoveryCase({ invoiceId, onBack }) {
             {bestOffer ? `${bestOffer.discount_pct}% Discount | ${bestOffer.days_to_payment}-Day Payment Terms` : 'All candidate offers fall below merchant floor.'}
           </p>
 
-          <div className="pt-4 flex flex-col sm:flex-row justify-center items-center gap-4">
-            <button
-              onClick={handleExecute}
-              disabled={executing || !bestOffer}
-              className={`w-full sm:w-auto px-10 py-4 ${TOKENS.radius.button} bg-[#6C63FF] text-white font-bold text-base font-display ${TOKENS.shadows.extruded} hover:bg-[#8B84FF] transition-neumorphic hover:-translate-y-1 active:translate-y-0.5 flex items-center justify-center gap-3 disabled:opacity-50 ${TOKENS.focus}`}
-            >
-              <Send size={20} /> {executing ? 'CREATING...' : 'CREATE PAYMENT LINK'}
-            </button>
-            <button
-              onClick={handleSimulateWebhook}
-              disabled={webhookSimulating}
-              className={`w-full sm:w-auto px-6 py-4 ${TOKENS.radius.button} bg-neu-surface text-[#38B2AC] font-bold text-sm font-display ${TOKENS.shadows.extrudedSmall} hover:${TOKENS.shadows.extrudedHover} flex items-center justify-center gap-2 ${TOKENS.focus}`}
-            >
-              <Zap size={18} /> {webhookSimulating ? 'Processing...' : 'Development Simulation'}
-            </button>
+          {/* Autonomous Outreach Action Area */}
+          <div className="pt-4 space-y-6">
+            <div className="flex justify-center items-center gap-3">
+              <span className="text-xs font-bold uppercase tracking-wider text-neu-secondary font-display">Outreach Channels:</span>
+              <button
+                type="button"
+                onClick={() => toggleChannel('email')}
+                className={`px-3 py-1.5 ${TOKENS.radius.button} text-xs font-bold font-display flex items-center gap-1.5 transition-neumorphic ${
+                  selectedChannels.includes('email')
+                    ? `bg-[#6C63FF] text-white ${TOKENS.shadows.extrudedSmall}`
+                    : `bg-neu-surface text-neu-secondary ${TOKENS.shadows.insetSmall}`
+                }`}
+              >
+                <Mail size={14} /> Resend Email
+              </button>
+              <button
+                type="button"
+                onClick={() => toggleChannel('sms')}
+                className={`px-3 py-1.5 ${TOKENS.radius.button} text-xs font-bold font-display flex items-center gap-1.5 transition-neumorphic ${
+                  selectedChannels.includes('sms')
+                    ? `bg-[#6C63FF] text-white ${TOKENS.shadows.extrudedSmall}`
+                    : `bg-neu-surface text-neu-secondary ${TOKENS.shadows.insetSmall}`
+                }`}
+              >
+                <MessageSquare size={14} /> Twilio SMS
+              </button>
+            </div>
+
+            <div className="flex flex-col sm:flex-row justify-center items-center gap-4">
+              <button
+                onClick={() => handleSendOutreach()}
+                disabled={outreachSending || !bestOffer}
+                className={`w-full sm:w-auto px-8 py-4 ${TOKENS.radius.button} bg-[#6C63FF] text-white font-bold text-base font-display ${TOKENS.shadows.extruded} hover:bg-[#8B84FF] transition-neumorphic hover:-translate-y-1 active:translate-y-0.5 flex items-center justify-center gap-3 disabled:opacity-50 ${TOKENS.focus}`}
+              >
+                <Send size={20} /> {outreachSending ? 'DISPATCHING...' : 'DISPATCH OUTREACH (EMAIL + SMS)'}
+              </button>
+
+              <button
+                onClick={handleExecute}
+                disabled={executing || !bestOffer}
+                className={`w-full sm:w-auto px-6 py-4 ${TOKENS.radius.button} bg-neu-surface text-neu-primary font-bold text-sm font-display ${TOKENS.shadows.extrudedSmall} hover:${TOKENS.shadows.extrudedHover} flex items-center justify-center gap-2 disabled:opacity-50 ${TOKENS.focus}`}
+              >
+                <ShieldCheck size={18} /> {executing ? 'CREATING LINK...' : 'CREATE LINK ONLY'}
+              </button>
+
+              <button
+                onClick={handleSimulateWebhook}
+                disabled={webhookSimulating}
+                className={`w-full sm:w-auto px-6 py-4 ${TOKENS.radius.button} bg-neu-surface text-[#38B2AC] font-bold text-sm font-display ${TOKENS.shadows.extrudedSmall} hover:${TOKENS.shadows.extrudedHover} flex items-center justify-center gap-2 ${TOKENS.focus}`}
+              >
+                <Zap size={18} /> {webhookSimulating ? 'Processing...' : 'Development Simulation'}
+              </button>
+            </div>
           </div>
+
+          {/* Outreach Status Diagnostics */}
+          {outreachResult && (
+            <div className={`mt-6 p-4 ${TOKENS.radius.button} ${TOKENS.shadows.inset} bg-neu-surface text-left space-y-3 animate-fadeIn`}>
+              <div className="text-xs font-bold text-[#6C63FF] font-display flex items-center gap-2">
+                <CheckCircle2 size={16} /> Autonomous Outreach Execution Summary:
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                {Object.entries(outreachResult.channels || {}).map(([ch, details]) => (
+                  <div key={ch} className={`p-3 ${TOKENS.radius.inner} ${TOKENS.shadows.insetSmall} space-y-1`}>
+                    <div className="flex justify-between items-center">
+                      <span className="uppercase font-bold text-neu-primary flex items-center gap-1">
+                        {ch === 'email' ? <Mail size={12} /> : <MessageSquare size={12} />} {ch}
+                      </span>
+                      <span className={`px-2 py-0.5 ${TOKENS.radius.pill} text-[10px] font-bold uppercase ${
+                        details.status === 'sent' ? 'bg-emerald-500/10 text-emerald-500' :
+                        details.status === 'already_sent' ? 'bg-blue-500/10 text-blue-500' :
+                        details.status === 'unavailable' ? 'bg-amber-500/10 text-amber-500' : 'bg-red-500/10 text-red-500'
+                      }`}>
+                        {details.status}
+                      </span>
+                    </div>
+                    {details.recipient && (
+                      <div className="text-[11px] text-neu-secondary truncate">To: {details.recipient}</div>
+                    )}
+                    {details.error && (
+                      <div className="text-[10px] text-amber-400 truncate">{details.error}</div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {outreachError && (
+            <div className={`mt-6 p-4 ${TOKENS.radius.button} ${TOKENS.shadows.inset} bg-red-950/20 text-left space-y-2 animate-fadeIn border border-red-500/30`}>
+              <div className="text-xs font-bold text-red-500 font-display flex items-center gap-2">
+                <AlertTriangle size={16} /> Outreach Delivery Error:
+              </div>
+              <div className="font-mono text-xs text-red-400">
+                {outreachError}
+              </div>
+            </div>
+          )}
 
           {executionResult && executionResult.payment_link_url && (
             <div className={`mt-6 p-4 ${TOKENS.radius.button} ${TOKENS.shadows.inset} bg-neu-surface text-left space-y-2 animate-fadeIn`}>
               <div className="text-xs font-bold text-[#6C63FF] font-display flex items-center gap-2">
-                <CheckCircle2 size={16} /> Razorpay Test Payment Link Generated:
+                <CheckCircle2 size={16} /> Razorpay Test Payment Link Active:
               </div>
               <div className="flex items-center justify-between gap-4 font-mono text-xs text-neu-primary">
                 <span className="truncate">{executionResult.payment_link_url}</span>

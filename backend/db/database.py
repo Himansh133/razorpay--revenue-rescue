@@ -7,7 +7,7 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker, Session
 
 from backend.config import DATABASE_URL, DB_PATH, normalize_database_url
-from backend.db.models import Base, InvoiceModel, PaymentModel, WebhookEventModel, AuditEventModel
+from backend.db.models import Base, InvoiceModel, PaymentModel, WebhookEventModel, AuditEventModel, OutreachRecordModel
 from backend.models.schemas import AuditEvent
 
 VALID_EVENT_TYPES = {
@@ -17,9 +17,13 @@ VALID_EVENT_TYPES = {
     "CUSTOMER_ANALYZED",
     "OFFERS_EVALUATED",
     "OFFER_SELECTED",
+    "AI_OFFER_GENERATED",
     "OFFER_REJECTED_BELOW_FLOOR",
     "ESCALATED_TO_HUMAN",
     "PAYMENT_LINK_CREATED",
+    "EMAIL_SENT",
+    "SMS_SENT",
+    "OUTREACH_FAILED",
     "PAYMENT_CAPTURED",
     "PAYMENT_FAILED"
 }
@@ -65,12 +69,12 @@ def build_summary(event_type: str, detail: Dict[str, Any]) -> str:
     elif event_type == "OFFERS_EVALUATED":
         count = detail.get("candidates_count", 0)
         return f"Evaluated {count} candidate recovery offers"
-    elif event_type == "OFFER_SELECTED":
+    elif event_type in ["OFFER_SELECTED", "AI_OFFER_GENERATED"]:
         amt = detail.get("offer_amount", 0.0)
         disc = detail.get("discount_pct", 0.0)
         terms = detail.get("days_to_payment", 0)
         ev = detail.get("expected_value", 0.0)
-        return f"Selected ₹{amt:,.0f} offer ({disc:.1f}% discount, {terms}-day terms, EV ₹{ev:,.0f})"
+        return f"AI Offer generated: ₹{amt:,.0f} ({disc:.1f}% discount, {terms}-day terms, EV ₹{ev:,.0f})"
     elif event_type == "OFFER_REJECTED_BELOW_FLOOR":
         amt = detail.get("offer_amount", 0.0)
         disc = detail.get("discount_pct", 0.0)
@@ -82,6 +86,15 @@ def build_summary(event_type: str, detail: Dict[str, Any]) -> str:
     elif event_type == "PAYMENT_LINK_CREATED":
         amt = detail.get("amount", 0.0)
         return f"Razorpay payment link created for ₹{amt:,.0f}"
+    elif event_type == "EMAIL_SENT":
+        recipient = detail.get("recipient", "customer")
+        return f"Recovery offer sent via Email to {recipient}"
+    elif event_type == "SMS_SENT":
+        recipient = detail.get("recipient", "customer")
+        return f"Recovery offer sent via SMS to {recipient}"
+    elif event_type == "OUTREACH_FAILED":
+        reason = detail.get("reason", "delivery error")
+        return f"Customer outreach failed ({reason})"
     elif event_type == "PAYMENT_CAPTURED":
         amt = detail.get("amount_paid", 0.0)
         return f"Payment captured: ₹{amt:,.0f} recovered"

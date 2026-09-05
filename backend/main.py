@@ -107,7 +107,7 @@ app.include_router(webhooks.router)
 
 @app.get("/health", response_model=HealthResponse, tags=["Health"])
 def health_check():
-    from backend.config import GEMINI_API_KEY, ANTHROPIC_API_KEY
+    from backend.config import GEMINI_API_KEY, ANTHROPIC_API_KEY, is_email_configured, is_sms_configured
     from backend.db.database import SessionLocal
     from sqlalchemy import text
 
@@ -136,6 +136,8 @@ def health_check():
         status="ok",
         version="1.0.0",
         gemini_configured=bool(gemini_key),
+        email_configured=is_email_configured(),
+        sms_configured=is_sms_configured(),
         active_provider=provider,
         model=model_name,
         database_connected=db_ok
