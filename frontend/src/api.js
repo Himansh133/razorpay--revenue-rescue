@@ -33,7 +33,11 @@ async function fetchJSON(url, options = {}) {
 }
 
 export async function getHealth() {
-  return fetchJSON(`${BASE_URL}/health`);
+  const healthUrl = `${BASE_URL}/health`;
+  console.log("[HEALTH] requesting:", healthUrl);
+  const data = await fetchJSON(healthUrl);
+  console.log("[HEALTH] response:", data);
+  return data;
 }
 
 export async function getDashboardSummary() {

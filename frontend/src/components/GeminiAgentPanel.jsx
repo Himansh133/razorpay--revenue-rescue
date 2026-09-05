@@ -39,13 +39,16 @@ export default function GeminiAgentPanel({ invoiceId, customerName, onRefresh })
   useEffect(() => {
     async function checkHealth() {
       try {
+        console.log("[GeminiAgentPanel] requesting health check...");
         const res = await getHealth();
+        console.log("[GeminiAgentPanel] health response received:", res);
         if (res && res.status === 'ok') {
           setHealthData(res);
         } else {
           setHealthData({ status: 'offline', gemini_configured: false, active_provider: 'offline', model: 'offline' });
         }
       } catch (err) {
+        console.error("[GeminiAgentPanel] health check failed:", err);
         setHealthData({ status: 'offline', gemini_configured: false, active_provider: 'offline', model: 'offline' });
       }
     }
